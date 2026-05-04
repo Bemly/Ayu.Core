@@ -174,7 +174,7 @@ _sync_qq_files_to_tg() {
 		if [ -z "$_dl" ] || [ "$_dl" = "NOTFOUND" ]; then
 			log_err "sync: qq→tg file no url fid=$_fid"; continue
 		fi
-		_url="$(json_get "$_dl" url 2>/dev/null)" || _url=""
+		_url="$(json_get "$_dl" download_url 2>/dev/null)" || _url=""
 		[ -z "$_url" ] && _url="$_dl"
 		_url="$(utf8_decode "$_url")"
 		if [ -n "$_tthr" ]; then
