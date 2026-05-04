@@ -7,6 +7,7 @@
 # Source message APIs (harmless if already sourced)
 . "$_HB/adapter/qq/message.sh"
 . "$_HB/adapter/qq/file.sh"
+. "$_HB/adapter/qq/group.sh"
 . "$_HB/adapter/telegram/message.sh"
 . "$_HB/adapter/telegram/file.sh"
 . "$_HB/adapter/discord/message.sh"
@@ -379,7 +380,8 @@ sync_handler() {
 			_new="$(json_get "$_rdata" new_reaction 2>/dev/null)" || _new=""
 			_emojis="$(printf '%s' "$_new" | grep -o '"emoji":"[^"]*"' | sed 's/"emoji":"//g;s/"//g')"
 			for _emoji in $_emojis; do
-				_code="$(printf '%d' "'$_emoji" 2>/dev/null)" || _code="$_emoji"
+				_ech="$(utf8_decode "$_emoji")"
+				_code="$(printf '%d' "'$_ech" 2>/dev/null)" || _code="$_emoji"
 				qq_group_send_reaction "$_gid" "$_rseq" "$_code" true
 				log_info "sync: tg_reaction→qq $_emoji(${_code}) gid=$_gid seq=$_rseq"
 			done
