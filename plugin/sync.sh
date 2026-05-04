@@ -467,7 +467,7 @@ sync_handler() {
 					_rseq="$(json_get "$_raw" message_seq 2>/dev/null)" || _rseq=""
 					if [ -n "$_tmid" ] && [ -n "$_rseq" ]; then
 						mkdir -p "/test/var/state/msg-map/$_tcid"
-						echo "$_sid $_rseq" > "/test/var/state/msg-map/$_tcid/$_tmid"
+						echo "${_sid#group/} $_rseq" > "/test/var/state/msg-map/$_tcid/$_tmid"
 					fi
 					log_info "sync: $_pf→tg OK"
 				else
