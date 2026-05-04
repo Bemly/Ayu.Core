@@ -176,7 +176,11 @@ _tg_dispatch_msg() {
 	_chat="$(json_get "$_msg" chat 2>/dev/null)" || _chat=""
 	_cid="$(json_get "$_chat" id 2>/dev/null)" || _cid=""
 	[ "$_cid" = "NOTFOUND" ] && _cid=""
-	log_info "tg_webhook: $_evt chat=$_cid text=$_txt"
+	_has_ani="$(json_get "$_msg" animation 2>/dev/null)" || _has_ani=""
+	_has_doc="$(json_get "$_msg" document 2>/dev/null)" || _has_doc=""
+	_has_pho="$(json_get "$_msg" photo 2>/dev/null)" || _has_pho=""
+	_has_vid="$(json_get "$_msg" video 2>/dev/null)" || _has_vid=""
+	log_info "tg_webhook: $_evt chat=$_cid text=$_txt has={ani=$([ -n "$_has_ani" ] && [ "$_has_ani" != NOTFOUND ] && echo 1 || echo 0) doc=$([ -n "$_has_doc" ] && [ "$_has_doc" != NOTFOUND ] && echo 1 || echo 0) pho=$([ -n "$_has_pho" ] && [ "$_has_pho" != NOTFOUND ] && echo 1 || echo 0) vid=$([ -n "$_has_vid" ] && [ "$_has_vid" != NOTFOUND ] && echo 1 || echo 0)}"
 	dispatch "telegram" "message" "$_cid" "$_txt" "$_msg"
 }
 
