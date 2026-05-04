@@ -814,7 +814,8 @@ sync_handler() {
 				# Forward photo (TG→QQ)
 				if [ "$_pf" = "telegram" ]; then
 					_sync_tg_voice_to_qq "$_raw" "$_gid"
-ttttt_sync_tg_audio_to_qq "$_raw" "$_gid"					_sync_tg_video_to_qq "$_raw" "$_gid"
+					_sync_tg_audio_to_qq "$_raw" "$_gid"
+					_sync_tg_video_to_qq "$_raw" "$_gid"
 					_sync_tg_photo_to_qq "$_raw" "$_gid"
 					_sync_tg_sticker_to_qq "$_raw" "$_gid"
 				_sync_tg_animation_to_qq "$_raw" "$_gid"
