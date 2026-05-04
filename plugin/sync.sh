@@ -370,6 +370,24 @@ _sync_tg_document_to_qq() {
 sync_handler() {
 	_pf="$1" _evt="$2" _uid="$3" _txt="$4" _raw="$5"
 
+	# TG reaction → QQ: lookup mapping and apply reaction
+	if [ "$_evt" = "reaction" ] && [ "$_pf" = "telegram" ]; then
+		_tcid="$3" _tmid="$4" _rdata="$5"
+		_map="/test/var/state/msg-map/$_tcid/$_tmid"
+		if [ -f "$_map" ]; then
+			read -r _gid _rseq < "$_map"
+			_new="$(json_get "$_rdata" new_reaction 2>/dev/null)" || _new=""
+			_emojis="$(printf '%s' "$_new" | grep -o '"emoji":"[^"]*"' | sed 's/"emoji":"//g;s/"//g')"
+			for _emoji in $_emojis; do
+				_code="$(printf '%d' "'$_emoji" 2>/dev/null)" || _code="$_emoji"
+				qq_group_send_reaction "$_gid" "$_rseq" "$_code" true
+				log_info "sync: tg_reaction→qq $_emoji(${_code}) gid=$_gid seq=$_rseq"
+			done
+		else
+			log_debug "sync: reaction no map $_tcid/$_tmid"
+		fi
+		return 0
+	fi
 	# Loop prevention 1: emoji prefix = already forwarded
 	case "$_txt" in "🐧"*|"✈️"*|"👾"*) return 0 ;; esac
 	# Loop prevention 2: sender is the bot itself
@@ -443,11 +461,18 @@ sync_handler() {
 			else
 				_body="$(json_obj "chat_id" "$_tcid" "text" "$_text")"
 			fi
-			if _tg_api "sendMessage" "$_body" "sync.tg" >/dev/null; then
-				log_info "sync: $_pf→tg OK"
-			else
-				log_err "sync: $_pf→tg FAIL: $_ERROR"
-			fi
+				_resp="$(_tg_api "sendMessage" "$_body" "sync.tg")" || _resp=""
+				if [ -n "$_resp" ] && [ "$_resp" != "NOTFOUND" ]; then
+					_tmid="$(json_get "$_resp" message_id 2>/dev/null)" || _tmid=""
+					_rseq="$(json_get "$_raw" message_seq 2>/dev/null)" || _rseq=""
+					if [ -n "$_tmid" ] && [ -n "$_rseq" ]; then
+						mkdir -p "/test/var/state/msg-map/$_tcid"
+						echo "$_sid $_rseq" > "/test/var/state/msg-map/$_tcid/$_tmid"
+					fi
+					log_info "sync: $_pf→tg OK"
+				else
+					log_err "sync: $_pf→tg FAIL: $_ERROR"
+				fi
 			# Forward images (QQ→TG)
 			if [ "$_pf" = "qq" ]; then
 				_sync_qq_images_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender"
@@ -458,7 +483,16 @@ sync_handler() {
 			case "$_tid" in
 			group/*)
 				_gid="${_tid#group/}"
-				if qq_message_send_group "$_gid" "$_segs" >/dev/null; then
+				_resp="$(qq_message_send_group "$_gid" "$_segs" 2>/dev/null)" || _resp=""
+				if [ -n "$_resp" ] && [ "$_resp" != "NOTFOUND" ]; then
+					_rseq="$(json_get "$_resp" message_seq 2>/dev/null)" || _rseq=""
+					_tmid="$(json_get "$_raw" message_id 2>/dev/null)" || _tmid=""
+					_tchat="$(json_get "$_raw" chat 2>/dev/null)" || _tchat=""
+					_tcid="$(json_get "$_tchat" id 2>/dev/null)" || _tcid=""
+					if [ -n "$_tmid" ] && [ -n "$_rseq" ] && [ -n "$_tcid" ]; then
+						mkdir -p "/test/var/state/msg-map/$_tcid"
+						echo "$_gid $_rseq" > "/test/var/state/msg-map/$_tcid/$_tmid"
+					fi
 					log_info "sync: $_pf→qq group $_gid OK"
 				else
 					log_err "sync: $_pf→qq group $_gid FAIL: $_ERROR"

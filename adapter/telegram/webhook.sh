@@ -213,6 +213,16 @@ tg_webhook() {
 		return 0
 	fi
 
+
+	_reaction="$(json_get "$_raw" message_reaction 2>/dev/null)" || _reaction=""
+	if [ -n "$_reaction" ] && [ "$_reaction" != "NOTFOUND" ]; then
+		_rchat="$(json_get "$_reaction" chat)" || _rchat=""
+		_rcid="$(json_get "$_rchat" id 2>/dev/null)" || _rcid=""
+		_rmid="$(json_get "$_reaction" message_id 2>/dev/null)" || _rmid=""
+		log_info "tg_webhook: reaction chat=$_rcid msg=$_rmid"
+		dispatch "telegram" "reaction" "$_rcid" "$_rmid" "$_reaction"
+		return 0
+	fi
 	log_debug "tg_webhook: unhandled update type"
 	return 0
 }
