@@ -154,6 +154,44 @@ _sync_qq_images_to_tg() {
 	[ $_sent -gt 0 ] && return 0 || return 1
 }
 
+# Forward QQ files to TG (get download URL, send via sendDocument)
+_sync_qq_files_to_tg() {
+	_raw="$1" _tcid="$2" _tthr="$3" _sender="$4"
+	_segs="$(json_get "$_raw" segments 2>/dev/null)" || _segs=""
+	if [ -z "$_segs" ] || [ "$_segs" = "NOTFOUND" ]; then return 1; fi
+	_files="$(printf '%s' "$_segs" | sed 's/},{"type"/\
+{"type"/g' | grep '"type":"file"')"
+	if [ -z "$_files" ]; then return 1; fi
+	_gid="$(json_get "$_raw" group_id 2>/dev/null)" || _gid=""
+	_sent=0
+	IFS='
+'
+	for _f in $_files; do
+		_fid="$(printf '%s' "$_f" | sed -n 's/.*"file_id":"\([^"]*\)".*/\1/p')"
+		_fn="$(printf '%s' "$_f" | sed -n 's/.*"file_name":"\([^"]*\)".*/\1/p')"
+		[ -z "$_fid" ] && continue
+		_dl="$(qq_file_get_download_url "$_gid" "$_fid" 2>/dev/null)" || _dl=""
+		if [ -z "$_dl" ] || [ "$_dl" = "NOTFOUND" ]; then
+			log_err "sync: qq→tg file no url fid=$_fid"; continue
+		fi
+		_url="$(json_get "$_dl" url 2>/dev/null)" || _url=""
+		[ -z "$_url" ] && _url="$_dl"
+		_url="$(utf8_decode "$_url")"
+		if [ -n "$_tthr" ]; then
+			_body="$(json_obj "chat_id" "$_tcid" "document" "$_url" "caption" "🐧 $_sender: [文件] $_fn" "message_thread_id" "$_tthr")"
+		else
+			_body="$(json_obj "chat_id" "$_tcid" "document" "$_url" "caption" "🐧 $_sender: [文件] $_fn")"
+		fi
+		if _tg_api "sendDocument" "$_body" "sync.file" >/dev/null; then
+			_sent=$((_sent + 1)); log_info "sync: qq→tg file OK"
+		else
+			log_err "sync: qq→tg file FAIL: $_ERROR"
+		fi
+	done
+	log_info "sync: qq→tg files sent=$_sent"
+	[ $_sent -gt 0 ] && return 0 || return 1
+}
+
 # Forward TG photo to QQ (download from TG via CF Worker, upload to QQ)
 _sync_tg_photo_to_qq() {
 	_raw="$1" _gid="$2"
@@ -183,6 +221,39 @@ _sync_tg_photo_to_qq() {
 		log_info "sync: tg→qq image OK"; rm -f "$_tmp"; return 0
 	else
 		log_err "sync: tg→qq image FAIL: $_ERROR"; rm -f "$_tmp"; return 1
+	fi
+}
+
+# Forward TG document to QQ (download via CF Worker, upload via upload_group_file)
+_sync_tg_document_to_qq() {
+	_raw="$1" _gid="$2"
+	_doc="$(json_get "$_raw" document 2>/dev/null)" || return 1
+	if [ -z "$_doc" ] || [ "$_doc" = "NOTFOUND" ]; then return 1; fi
+	_fid="$(json_get "$_doc" file_id 2>/dev/null)" || _fid=""
+	if [ -z "$_fid" ] || [ "$_fid" = "NOTFOUND" ]; then return 1; fi
+	_fn="$(json_get "$_doc" file_name 2>/dev/null)" || _fn="file"
+	_fp="$(tg_getFile "$_fid" 2>/dev/null)" || _fp=""
+	if [ -z "$_fp" ] || [ "$_fp" = "NOTFOUND" ]; then
+		log_err "sync: tg→qq file getFile FAIL"; return 1
+	fi
+	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
+	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then
+		log_err "sync: tg→qq file no file_path"; return 1
+	fi
+	_ts=$(date +%s)
+	_ext="${_fn##*.}"
+	[ "$_ext" = "$_fn" ] && _ext=""
+	[ -n "$_ext" ] && _ext=".$_ext"
+	_tmp="/tmp/img/sync-file-tg-$$-$_ts$_ext"
+	_furi="file:///root/img/sync-file-tg-$$-$_ts$_ext"
+	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
+	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || {
+		log_err "sync: tg→qq file download FAIL"; rm -f "$_tmp"; return 1
+	}
+	if qq_file_upload_group "$_gid" "$_furi" "$_fn" >/dev/null 2>/dev/null; then
+		log_info "sync: tg→qq file OK"; rm -f "$_tmp"; return 0
+	else
+		log_err "sync: tg→qq file FAIL: $_ERROR"; rm -f "$_tmp"; return 1
 	fi
 }
 
@@ -271,6 +342,7 @@ sync_handler() {
 			# Forward images (QQ→TG)
 			if [ "$_pf" = "qq" ]; then
 				_sync_qq_images_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender"
+				_sync_qq_files_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender"
 			fi
 			;;
 		qq)
@@ -285,6 +357,7 @@ sync_handler() {
 				# Forward photo (TG→QQ)
 				if [ "$_pf" = "telegram" ]; then
 					_sync_tg_photo_to_qq "$_raw" "$_gid"
+				_sync_tg_document_to_qq "$_raw" "$_gid"
 				fi
 				;;
 			private/*)
