@@ -404,9 +404,6 @@ sync_handler() {
 	# TG reaction → QQ: lookup mapping and apply reaction
 	if [ "$_evt" = "reaction" ] && [ "$_pf" = "telegram" ]; then
 		_tcid="$3" _tmid="$4" _rdata="$5"
-	# TG reaction -> QQ: lookup mapping and apply reaction
-	if [ "$_evt" = "reaction" ] && [ "$_pf" = "telegram" ]; then
-		_tcid="$3" _tmid="$4" _rdata="$5"
 		_map="/test/var/state/msg-map/$_tcid/$_tmid"
 		if [ -f "$_map" ]; then
 			read -r _gid _rseq < "$_map"
