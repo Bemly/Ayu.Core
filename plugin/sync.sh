@@ -17,7 +17,8 @@
 # _reaction_code <json_escaped_emoji> -> decimal Unicode codepoint
 # NOTE: surrogate pair logic mirrors utf8_decode in lib/url.sh — same hex parsing, different output
 _reaction_code() {
-	printf '%s' "$1" | awk '
+	# Try JSON-escaped \uXXXX[\uYYYY] format first
+	_code="$(printf '%s' "$1" | awk '
 	match($0, /\\u[Dd][89ABab][0-9A-Fa-f][0-9A-Fa-f]\\u[Dd][C-Fc-f][0-9A-Fa-f][0-9A-Fa-f]/) {
 		h1 = substr($0, 3, 4); lo = substr($0, 9, 4)
 		cp = 0x10000 + (("0x"h1) - 0xD800) * 0x400 + (("0x"lo) - 0xDC00)
@@ -26,7 +27,20 @@ _reaction_code() {
 	match($0, /\\u[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]/) {
 		h = substr($0, 3, 4); printf "%d", "0x"h; exit
 	}
-	{ print $0 }'
+	')"
+	if [ -n "$_code" ]; then
+		printf '%s' "$_code"
+	else
+		# Raw emoji character: decode UTF-8 bytes via od
+		printf '%s' "$1" | od -An -tu1 | awk '{
+		b1 = $1; b2 = $2; b3 = $3; b4 = $4
+		if (b1 < 0x80) cp = b1
+		else if (b1 < 0xE0) cp = (b1 - 0xC0) * 64 + (b2 - 0x80)
+		else if (b1 < 0xF0) cp = (b1 - 0xE0) * 4096 + (b2 - 0x80) * 64 + (b3 - 0x80)
+		else cp = (b1 - 0xF0) * 262144 + (b2 - 0x80) * 4096 + (b3 - 0x80) * 64 + (b4 - 0x80)
+		printf "%d", cp
+		}'
+	fi
 }
 
 _sync_get_sender() {
