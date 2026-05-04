@@ -323,9 +323,8 @@ _sync_tg_animation_to_qq() {
 	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || {
 		log_err "sync: tg→qq animation download FAIL"; rm -f "$_tmp"; return 1
 	}
-	# Build image segment array → send via send_group_message
-	_img_msg="[{\"type\":\"image\",\"data\":{\"uri\":\"$_furi\",\"summary\":\"[动画]\"}}]"
-	if qq_message_send_group "$_gid" "$_img_msg" >/dev/null; then
+		# Upload as file (TG converts GIF to MP4, QQ cannot display MP4 as image)
+		if qq_file_upload_group "$_gid" "$_furi" "$_fname" >/dev/null; then
 		log_info "sync: tg→qq animation OK"; rm -f "$_tmp"; return 0
 	else
 		log_err "sync: tg→qq animation FAIL: $_ERROR"; rm -f "$_tmp"; return 1
@@ -468,7 +467,7 @@ sync_handler() {
 				if [ "$_pf" = "telegram" ]; then
 					_sync_tg_photo_to_qq "$_raw" "$_gid"
 				_sync_tg_animation_to_qq "$_raw" "$_gid"
-				_sync_tg_document_to_qq "$_raw" "$_gid"
+			_ani="$(json_get "$_raw" animation 2>/dev/null)" || _ani=""; [ -z "$_ani" ] || [ "$_ani" = "NOTFOUND" ] && _sync_tg_document_to_qq "$_raw" "$_gid"
 				fi
 				;;
 			private/*)
