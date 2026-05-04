@@ -514,6 +514,10 @@ _sync_tg_document_to_qq() {
 	if [ -z "$_fid" ] || [ "$_fid" = "NOTFOUND" ]; then return 1; fi
 	_fn="$(json_get "$_doc" file_name 2>/dev/null)" || _fn="file"
 	_fn="$(utf8_decode "$_fn")"
+	_fsz="$(json_get "$_doc" file_size 2>/dev/null)" || _fsz=""
+	if [ -n "$_fsz" ] && [ "$_fsz" != "NOTFOUND" ] && [ "$_fsz" -gt 20000000 ] 2>/dev/null; then
+		log_info "sync: tg-qq file skip too big ($_fsz bytes)"; return 0
+	fi
 	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || { log_err "sync: tg-qq file getFile FAIL err=$_ERROR"; return 1; }
 	_fp="$(cat "/tmp/tg-fp-$$")"; rm -f "/tmp/tg-fp-$$"
 	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
@@ -578,6 +582,10 @@ _sync_tg_audio_to_qq() {
 	if [ -z "$_fid" ] || [ "$_fid" = "NOTFOUND" ]; then return 1; fi
 	_title="$(json_get "$_audio" title 2>/dev/null)" || _title=""
 	[ "$_title" = "NOTFOUND" ] && _title=""
+	_fsz="$(json_get "$_audio" file_size 2>/dev/null)" || _fsz=""
+	if [ -n "$_fsz" ] && [ "$_fsz" != "NOTFOUND" ] && [ "$_fsz" -gt 20000000 ] 2>/dev/null; then
+		log_info "sync: tg-qq audio skip too big ($_fsz bytes)"; return 0
+	fi
 	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || { log_err "sync: tg-qq audio getFile FAIL err=$_ERROR"; return 1; }
 	_fp="$(cat "/tmp/tg-fp-$$")"; rm -f "/tmp/tg-fp-$$"
 	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
@@ -608,6 +616,10 @@ _sync_tg_video_to_qq() {
 	if [ -z "$_video" ] || [ "$_video" = "NOTFOUND" ]; then return 1; fi
 	_fid="$(json_get "$_video" file_id 2>/dev/null)" || _fid=""
 	if [ -z "$_fid" ] || [ "$_fid" = "NOTFOUND" ]; then return 1; fi
+	_fsz="$(json_get "$_video" file_size 2>/dev/null)" || _fsz=""
+	if [ -n "$_fsz" ] && [ "$_fsz" != "NOTFOUND" ] && [ "$_fsz" -gt 20000000 ] 2>/dev/null; then
+		log_info "sync: tg-qq video skip too big ($_fsz bytes)"; return 0
+	fi
 	_fpfile="/tmp/tg-vid-fp-$$"
 	tg_getFile "$_fid" > "$_fpfile" 2>/dev/null || { log_err "sync: tg-qq video getFile FAIL fid=$_fid err=$_ERROR"; rm -f "$_fpfile"; return 1; }
 	_fp="$(cat "$_fpfile")"; rm -f "$_fpfile"

@@ -151,7 +151,12 @@ telegram/-100111=qq/group/123456            # TG group → QQ group
 
 **2. Enable** with the `*` rule in `etc/rules` (included by default).
 
-**Limitation**: Discord→QQ/TG requires Gateway (WebSocket), not feasible in pure shell. TG→QQ recall is not possible (TG webhooks don't include deletion events). QQ↔Telegram is fully bidirectional — text, image, file, voice, video, sticker, reaction, recall (QQ→TG).
+**Limitations**:
+- Discord→QQ/TG requires Gateway (WebSocket), not feasible in pure shell
+- TG→QQ recall is not possible (TG webhooks don't include deletion events)
+- TG Bot API `getFile` has a **20MB** file size limit — files larger than 20MB (e.g., long videos) can be received via webhook but cannot be downloaded for forwarding. These are skipped with a log message.
+
+QQ↔Telegram is fully bidirectional — text, image, file, voice, video, sticker, reaction, recall (QQ→TG).
 
 ## Webhook Auth
 

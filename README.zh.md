@@ -151,7 +151,12 @@ telegram/-100111=qq/group/123456            # TG 群 → QQ 群
 
 **2. 启用**: `etc/rules` 中默认已包含 `*` 规则。
 
-**限制**: Discord→QQ/TG 需要 Gateway (WebSocket)，纯 shell 无法实现。TG→QQ 撤回不可行（TG webhook 不含删除事件）。QQ↔Telegram 完全双向同步 —— 文字、图片、文件、语音、视频、贴纸、表情反应、撤回（QQ→TG）。
+**限制**：
+- Discord→QQ/TG 需要 Gateway (WebSocket)，纯 shell 无法实现
+- TG→QQ 撤回不可行（TG webhook 不含删除事件）
+- TG Bot API `getFile` 有 **20MB** 文件大小限制 —— 超过 20MB 的文件（如长视频）可通过 webhook 接收但无法下载转发，会被跳过并记录日志
+
+QQ↔Telegram 完全双向同步 —— 文字、图片、文件、语音、视频、贴纸、表情反应、撤回（QQ→TG）。
 
 ## Webhook 鉴权
 
