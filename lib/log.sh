@@ -15,7 +15,9 @@ _log() {
     _lv="$1" _tag="$2"
     if [ "$_lv" -ge "$_LOG_LEVEL" ]; then
         _ts="$(date +%Y-%m-%dT%H:%M:%S)"
-        printf '[%s] %s %s\n' "$_ts" "$_tag" "$3" >> "$_LOG_FILE"
+        _line="[$_ts] $_tag $3"
+        printf '%s\n' "$_line" >> "$_LOG_FILE"
+        printf '%s\n' "$_line" >&2
     fi
 }
 
