@@ -8,11 +8,26 @@
 . "$_HB/adapter/qq/message.sh"
 . "$_HB/adapter/qq/file.sh"
 . "$_HB/adapter/qq/group.sh"
+. "$_HB/adapter/qq/group.sh"
 . "$_HB/adapter/telegram/message.sh"
 . "$_HB/adapter/telegram/file.sh"
 . "$_HB/adapter/discord/message.sh"
 
 # Extract sender display name from platform-specific raw JSON
+# _reaction_code <json_escaped_emoji> -> decimal Unicode codepoint
+_reaction_code() {
+	printf '%s' "$1" | awk '
+	match($0, /\\u[Dd][89ABab][0-9A-Fa-f][0-9A-Fa-f]\\u[Dd][C-Fc-f][0-9A-Fa-f][0-9A-Fa-f]/) {
+		h1 = substr($0, 3, 4); lo = substr($0, 9, 4)
+		cp = 0x10000 + (("0x"h1) - 0xD800) * 0x400 + (("0x"lo) - 0xDC00)
+		printf "%d", cp; exit
+	}
+	match($0, /\\u[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]/) {
+		h = substr($0, 3, 4); printf "%d", "0x"h; exit
+	}
+	{ print $0 }'
+}
+
 _sync_get_sender() {
 	_pf="$1" _raw="$2"
 	case "$_pf" in
@@ -390,6 +405,25 @@ sync_handler() {
 		fi
 		return 0
 	fi
+	# TG reaction -> QQ: lookup mapping and apply reaction
+	if [ "$_evt" = "reaction" ] && [ "$_pf" = "telegram" ]; then
+		_tcid="$3" _tmid="$4" _rdata="$5"
+		_map="/test/var/state/msg-map/$_tcid/$_tmid"
+		if [ -f "$_map" ]; then
+			read -r _gid _rseq < "$_map"
+			_new="$(json_get "$_rdata" new_reaction 2>/dev/null)" || _new=""
+			_emojis="$(printf '%s' "$_new" | grep -o '"emoji":"[^"]*"' | sed 's/"emoji":"//g;s/"//g')"
+			for _emoji in $_emojis; do
+				_code="$(_reaction_code "$_emoji")"
+				qq_group_send_reaction "$_gid" "$_rseq" "$_code" true
+				log_info "sync: tg_reaction->qq $_emoji(${_code}) gid=$_gid seq=$_rseq"
+			done
+		else
+			log_debug "sync: reaction no map $_tcid/$_tmid"
+		fi
+		return 0
+	fi
+
 	# Loop prevention 1: emoji prefix = already forwarded
 	case "$_txt" in "🐧"*|"✈️"*|"👾"*) return 0 ;; esac
 	# Loop prevention 2: sender is the bot itself
@@ -490,6 +524,12 @@ sync_handler() {
 					_rseq="$(json_get "$_resp" message_seq 2>/dev/null)" || _rseq=""
 					_tmid="$(json_get "$_raw" message_id 2>/dev/null)" || _tmid=""
 					_tchat="$(json_get "$_raw" chat 2>/dev/null)" || _tchat=""
+					_tcid="$(json_get "$_tchat" id 2>/dev/null)" || _tcid=""
+					if [ -n "$_tmid" ] && [ -n "$_rseq" ] && [ -n "$_tcid" ]; then
+						mkdir -p "/test/var/state/msg-map/$_tcid"
+						echo "$_gid $_rseq" > "/test/var/state/msg-map/$_tcid/$_tmid"
+					fi
+					log_info "sync: $_pf→qq group $_gid OK"
 					_tcid="$(json_get "$_tchat" id 2>/dev/null)" || _tcid=""
 					if [ -n "$_tmid" ] && [ -n "$_rseq" ] && [ -n "$_tcid" ]; then
 						mkdir -p "/test/var/state/msg-map/$_tcid"
