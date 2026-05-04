@@ -22,8 +22,10 @@ _qq_api() {
     _ep="$1" _body="$2" _tag="$3"
     _out="/tmp/qq-api.$$"
     _qq_call "$_ep" "$_body" >"$_out" || { rm -f "$_out"; return 1; }
-    _result="$(json_get "$(cat "$_out")" data)" || { _ERROR="$_tag: $_ERROR"; rm -f "$_out"; return 1; }
-    rm -f "$_out"
+    _json="$(cat "$_out")"
+    json_get "$_json" data > "$_out.res" || { _ERROR="$_tag: $_JSON_ERROR body=$(printf '%.200s' "$_json")"; rm -f "$_out" "$_out.res"; return 1; }
+    _result="$(cat "$_out.res")"
+    rm -f "$_out" "$_out.res"
     printf '%s' "$_result"
 }
 
