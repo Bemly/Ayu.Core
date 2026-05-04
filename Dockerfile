@@ -12,15 +12,18 @@ RUN find /test -name "*.sh" -exec chmod +x {} \; && \
 
 EXPOSE 6160
 
-# Production requires --add-host host.docker.internal:host-gateway at runtime:
+# Production requires --add-host + volume mounts at runtime:
 #   docker run -d --name Ayu \
 #     --add-host host.docker.internal:host-gateway \
 #     -p 6160:6160 \
 #     -v /vol1/1000/Ayu:/test \
 #     -v /vol1/1000/Lagrange/img:/tmp/img \
-#     busybox:musl sh -c "while true; do sleep 3600; done"
+#     busybox:musl sh /test/cgi-bin/start.sh
 #
-# Then start httpd:
-#   docker exec Ayu sh -c "cd /test && hush cgi-bin/start.sh"
+# /tmp/img mount is REQUIRED — sync.sh downloads QQ CDN files there.
+# Missing it = all downloads silently fail (3 retries → fallback URL mode).
+#
+# httpd is pid 1 → docker logs Ayu captures all stderr log output.
+# To restart after deploy: docker exec Ayu killall httpd; docker start Ayu
 
 CMD ["hush", "cgi-bin/start.sh"]

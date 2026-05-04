@@ -168,7 +168,30 @@ Ayu.Core 使用原生 TCP + TLS 处理所有 HTTP/HTTPS 请求——`nc` 负责 
 3. 部署在边缘节点的 Worker 通常与主流 API 提供商有直连路由
 4. 可用 `X-Ayu-Token` 等自定义头部做边缘 WAF 鉴权
 
-Ayu.Core 通过 busybox 自带的 `ssl_client`（基于 OpenSSL）原生协商 TLS，无需外部 CA 证书包。
+### TLS 支持
+
+Ayu.Core 使用 busybox 自带的 `ssl_client` 进行 TLS 协商。**无需外部 SSL 库或 CA 证书包。**
+
+**TLS 版本：仅 1.2**（BusyBox 1.37.0 `ssl_client` 仅支持 TLS 1.2——无法降级到 TLS 1.0/1.1，也不支持 TLS 1.3）。
+
+**支持的加密套件**（默认全部启用）：
+
+| 套件名称 | 密钥交换 | 加密 | 完整性校验 |
+|---------|---------|------|-----------|
+| `ECDHE-RSA-AES128-GCM-SHA256` | ECDHE | AES-128-GCM | AEAD |
+| `ECDHE-ECDSA-AES128-GCM-SHA256` | ECDHE (ECDSA) | AES-128-GCM | AEAD |
+| `ECDHE-RSA-AES128-CBC-SHA256` | ECDHE | AES-128-CBC | SHA256 |
+| `ECDHE-ECDSA-AES128-CBC-SHA256` | ECDHE (ECDSA) | AES-128-CBC | SHA256 |
+| `RSA-AES128-GCM-SHA256` | RSA | AES-128-GCM | AEAD |
+| `RSA-AES128-CBC-SHA256` | RSA | AES-128-CBC | SHA256 |
+| `RSA-AES256-CBC-SHA256` | RSA | AES-256-CBC | SHA256 |
+
+**支持的椭圆曲线：** P256 (secp256r1)、X25519。
+
+**重要限制：**
+- 不验证 TLS 证书（不校验服务器证书——信任基于网络层）
+- 如果上游服务器要求 TLS 1.3（例如部分 Cloudflare zone 开启了最低 TLS 1.3），请求将在 TLS 握手阶段失败
+- 若目标需要 TLS 1.3，可通过 CF Worker 或反向代理中转
 
 ## 错误处理
 

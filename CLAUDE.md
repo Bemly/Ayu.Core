@@ -118,13 +118,36 @@ sshpass -p '...' scp file.sh fnOS:/tmp/ && \
   ssh fnOS 'sudo cp /tmp/file.sh /vol1/1000/Ayu/path/file.sh && sudo chmod +x /vol1/1000/Ayu/path/file.sh'
 # 4. Fix ALL permissions (CGI scripts silently fail without +x)
 ssh fnOS 'sudo find /vol1/1000/Ayu -name "*.sh" -exec chmod +x {} \; && sudo chmod 777 /vol1/1000/Ayu/var/log'
-# 5. Restart httpd on NAS
-ssh fnOS 'sudo docker exec Ayu sh -c "killall httpd; cd /test && hush cgi-bin/start.sh"'
+# 5. Restart httpd on NAS (kill httpd → container exits → restart container)
+ssh fnOS 'sudo docker exec Ayu killall httpd; sudo docker start Ayu'
 ```
+
+**Why `docker start Ayu` instead of `docker exec ... start.sh`:** httpd is the container's main process (pid 1). Killing it stops the container; restarting the container re-runs `start.sh` → httpd. This also ensures `docker logs Ayu` captures all output.
 
 **Exception:** `etc/config.sh` and `etc/sync.conf` NAS values (tokens, hostnames) differ from local defaults. These can be edited on NAS directly or via env vars.
 
 **Why:** Editing on NAS risks syntax errors in production. Local Docker catches them first.
+
+## Ayu container setup (NAS)
+
+The Ayu container MUST be created with:
+
+```sh
+docker run -d --name Ayu \
+  --add-host host.docker.internal:host-gateway \
+  -p 6160:6160 \
+  -v /vol1/1000/Ayu:/test \
+  -v /vol1/1000/Lagrange/img:/tmp/img \
+  busybox:musl sh /test/cgi-bin/start.sh
+```
+
+**Critical requirements:**
+- `sh /test/cgi-bin/start.sh` as entrypoint (NOT `sleep infinity`) — httpd runs as pid 1, `docker logs Ayu` captures all bot activity via stderr
+- **BOTH volume mounts are required:**
+  - `/vol1/1000/Ayu:/test` — code and config
+  - `/vol1/1000/Lagrange/img:/tmp/img` — shared with Lagrange for QQ↔TG image/file transfers. **Without this, ALL QQ CDN downloads fail** because sync.sh writes to `/tmp/img/sync-*`
+
+**Why:** Missing `/tmp/img` mount causes silent download failures — wrapper writes to non-existent directory, file is never created, 3 retries exhaust → fallback degrades to URL-only mode (no GIF detection, no file forwarding). See 2026-05-04 incident.
 
 ## Coding patterns
 
@@ -149,3 +172,13 @@ macOS proxy at 127.0.0.1:7890. Pull images with:
 ```sh
 HTTP_PROXY=http://127.0.0.1:7890 HTTPS_PROXY=http://127.0.0.1:7890 docker pull <image>
 ```
+
+## Commit rule
+
+**After EVERY file change (code, doc, config, CLAUDE.md itself), commit AND push immediately. No exceptions.**
+
+```
+git add -A && git commit -m "<message>" && git push
+```
+
+Do NOT batch multiple unrelated changes into one commit. Do NOT wait for the user to ask. If a file was edited, commit it right after.

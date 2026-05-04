@@ -168,7 +168,30 @@ If `api.telegram.org` or `discord.com` are unreachable from your deployment envi
 3. Workers deployed at the edge typically have direct peering to major API providers
 4. Use `X-Ayu-Token` or similar custom headers for WAF authentication at the edge
 
-Ayu.Core negotiates TLS natively via OpenSSL-based `ssl_client` (bundled in busybox). No external CA bundle or certificate store is required.
+### TLS Support
+
+Ayu.Core uses busybox's built-in `ssl_client` for TLS negotiation. **No external SSL library or CA bundle required.**
+
+**TLS version: 1.2 only** (BusyBox 1.37.0 `ssl_client` supports TLS 1.2 exclusively — no TLS 1.0/1.1 downgrade, no TLS 1.3).
+
+**Supported cipher suites** (all enabled by default):
+
+| Cipher Suite | Key Exchange | Encryption | Integrity |
+|-------------|-------------|------------|-----------|
+| `ECDHE-RSA-AES128-GCM-SHA256` | ECDHE | AES-128-GCM | AEAD |
+| `ECDHE-ECDSA-AES128-GCM-SHA256` | ECDHE (ECDSA) | AES-128-GCM | AEAD |
+| `ECDHE-RSA-AES128-CBC-SHA256` | ECDHE | AES-128-CBC | SHA256 |
+| `ECDHE-ECDSA-AES128-CBC-SHA256` | ECDHE (ECDSA) | AES-128-CBC | SHA256 |
+| `RSA-AES128-GCM-SHA256` | RSA | AES-128-GCM | AEAD |
+| `RSA-AES128-CBC-SHA256` | RSA | AES-128-CBC | SHA256 |
+| `RSA-AES256-CBC-SHA256` | RSA | AES-256-CBC | SHA256 |
+
+**Supported curves:** P256 (secp256r1), X25519.
+
+**Important limitations:**
+- No TLS certificate validation (the server's certificate is not verified — trust is based on network layer)
+- If your upstream server requires TLS 1.3 (e.g., some Cloudflare zones with minimum TLS 1.3), requests will fail at the TLS handshake stage
+- Use a CF Worker or reverse proxy as intermediate if the target requires TLS 1.3
 
 ## Error Handling
 
