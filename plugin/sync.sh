@@ -362,9 +362,18 @@ _sync_tg_sticker_to_qq() {
 	}
 	_sz=$(wc -c < "$_tmp" 2>/dev/null)
 	log_debug "sync: sticker downloaded sz=$_sz tmp=$_tmp"
-	# Video/animated stickers (WEBM/TGS) can't be sent as QQ image — pic compress error
+	# Video/animated → upload as file (WEBM/TGS can't be QQ image) — pic compress error
 	if [ "$_ivd" = "true" ] || [ "$_ian" = "true" ]; then
-		log_info "sync: tg→qq sticker skip (video=$_ivd animated=$_ian)"; rm -f "$_tmp"; return 0
+		log_debug "sync: tg→qq sticker file"
+		_emoji="$(json_get "$_sticker" emoji 2>/dev/null)" || _emoji=""
+		_fn="sticker"
+		[ -n "$_emoji" ] && [ "$_emoji" != "NOTFOUND" ] && _fn="sticker-$_emoji"
+		_fn="$_fn.${_fname##*.}"
+		if qq_file_upload_group "$_gid" "$_furi" "$_fn" >/dev/null; then
+			log_info "sync: tg→qq sticker file OK"; rm -f "$_tmp"; return 0
+		else
+			log_err "sync: tg→qq sticker file FAIL: $_ERROR"; rm -f "$_tmp"; return 1
+		fi
 	fi
 	_emoji="$(json_get "$_sticker" emoji 2>/dev/null)" || _emoji=""
 	_lbl="[贴纸]"
