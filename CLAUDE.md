@@ -195,13 +195,35 @@ TG `message_reaction` update → lookup msg-map file at `/test/var/state/msg-map
 
 Text forwarded with sender attribution prefix (🐧 for QQ, ✈️ for TG) and loop prevention checks (prefix + bot sender ID).
 
+### Voice / Record (bidirectional)
+
+| Direction | Method |
+|-----------|--------|
+| QQ→TG | `_sync_qq_record_to_tg()` — extract record segment temp_url → download → multipart `sendVoice` |
+| TG→QQ | `_sync_tg_voice_to_qq()` — `tg_getFile` → download → QQ record segment with `file:///root/img/...` URI |
+
+### Video (bidirectional)
+
+| Direction | Method |
+|-----------|--------|
+| QQ→TG | `_sync_qq_video_to_tg()` — extract video segment temp_url → download → multipart `sendVideo` |
+| TG→QQ | `_sync_tg_video_to_qq()` — `tg_getFile` → download → QQ video segment with `file:///root/img/...` URI |
+
+### Recall / Delete (QQ→TG only)
+
+QQ `message_recall` event → extract `peer_id` + `message_seq` → lookup reverse map at `/test/var/state/msg-map-rev/{qq_gid}/{qq_seq}` → `tg_deleteMessage`. Both forward and reverse maps are cleaned up after deletion.
+
+**TG→QQ recall is NOT possible**: Telegram webhooks do not include message deletion events.
+
 ### Non-forwardable Types (text label only)
 
-These TG content types produce `[标签]` text but no file transfer: voice `[语音]`, video `[视频]`, video_note `[视频笔记]`, audio `[音频: title]`, location `[位置]`, contact `[联系人]`, dice `[骰子]`, poll `[投票]`, venue `[地点]`, game `[游戏]`.
+These TG content types produce `[标签]` text but no file transfer: video_note `[视频笔记]`, audio `[音频: title]`, location `[位置]`, contact `[联系人]`, dice `[骰子]`, poll `[投票]`, venue `[地点]`, game `[游戏]`.
 
 ### Message Mapping
 
-Every forwarded message stores a mapping file: `/test/var/state/msg-map/{tg_chat_id}/{tg_message_id}` containing `{qq_group_id} {qq_message_seq}`. This enables TG→QQ reaction sync.
+Every forwarded message stores BOTH a forward and reverse mapping:
+- Forward: `/test/var/state/msg-map/{tg_chat_id}/{tg_message_id}` → `{qq_group_id} {qq_message_seq}` — enables TG→QQ reaction sync
+- Reverse: `/test/var/state/msg-map-rev/{qq_group_id}/{qq_message_seq}` → `{tg_chat_id} {tg_message_id}` — enables QQ→TG recall sync
 
 ### Sync Config
 

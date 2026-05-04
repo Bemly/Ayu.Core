@@ -134,10 +134,11 @@ dc_message_create "ch1" '{"content":"hello"}'
 | 贴纸 | — | 静态 WEBP → 图片；视频 WEBM/TGS → 文件 |
 | 表情反应 | — | `message_reaction` → msg-map 查映射 → `send_group_message_reaction` |
 | GIF/动画 | — | 下载 → `upload_group_file`（TG 转为 MP4） |
-| 语音 | `[语音]` 文字标签 | `[语音]` 文字标签 |
-| 视频 | `[视频]` 文字标签 | `[视频]` 文字标签 |
+| 语音 | 下载 `temp_url` → multipart `sendVoice` | 下载 → QQ record segment |
+| 视频 | 下载 `temp_url` → multipart `sendVideo` | 下载 → QQ video segment |
 | 回复 | 文字中包含上下文 | 文字中包含上下文 |
 | 转发 | `[转发]` 前缀 | `[转发]` 前缀 |
+| 撤回 | `message_recall` → 反向映射 → `deleteMessage` | —（TG webhook 不含删除事件） |
 | 位置/联系人/骰子/投票 | 文字标签 | 文字标签 |
 
 **1. 配置映射** `etc/sync.conf`：
@@ -150,7 +151,7 @@ telegram/-100111=qq/group/123456            # TG 群 → QQ 群
 
 **2. 启用**: `etc/rules` 中默认已包含 `*` 规则。
 
-**限制**: Discord→QQ/TG 需要 Gateway (WebSocket)，纯 shell 无法实现。QQ↔Telegram 完全双向同步 —— 文字、图片、文件、贴纸、表情反应。
+**限制**: Discord→QQ/TG 需要 Gateway (WebSocket)，纯 shell 无法实现。TG→QQ 撤回不可行（TG webhook 不含删除事件）。QQ↔Telegram 完全双向同步 —— 文字、图片、文件、语音、视频、贴纸、表情反应、撤回（QQ→TG）。
 
 ## Webhook 鉴权
 

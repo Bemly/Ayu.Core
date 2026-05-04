@@ -134,10 +134,11 @@ Messages from one platform auto-forward to the others. Images and files are down
 | Sticker | — | Static WEBP → image; Video WEBM/TGS → file |
 | Reaction | — | `message_reaction` → msg-map lookup → `send_group_message_reaction` |
 | GIF/Animation | — | Download → `upload_group_file` (TG converts to MP4) |
-| Voice | `[语音]` text label | `[语音]` text label |
-| Video | `[视频]` text label | `[视频]` text label |
+| Voice | Download `temp_url` → multipart `sendVoice` | Download → QQ `record` segment |
+| Video | Download `temp_url` → multipart `sendVideo` | Download → QQ `video` segment |
 | Reply | Context in text | Context in text |
 | Forward | `[转发]` prefix | `[转发]` prefix |
+| Recall | `message_recall` → rev-map lookup → `deleteMessage` | — (TG webhooks don't include deletions) |
 | Location/Contact/Dice/Poll | Text label | Text label |
 
 **1. Configure mappings** in `etc/sync.conf`:
@@ -150,7 +151,7 @@ telegram/-100111=qq/group/123456            # TG group → QQ group
 
 **2. Enable** with the `*` rule in `etc/rules` (included by default).
 
-**Limitation**: Discord→QQ/TG requires Gateway (WebSocket), not feasible in pure shell. QQ↔Telegram is fully bidirectional — text, image, file, sticker, reaction.
+**Limitation**: Discord→QQ/TG requires Gateway (WebSocket), not feasible in pure shell. TG→QQ recall is not possible (TG webhooks don't include deletion events). QQ↔Telegram is fully bidirectional — text, image, file, voice, video, sticker, reaction, recall (QQ→TG).
 
 ## Webhook Auth
 
