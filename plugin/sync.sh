@@ -140,21 +140,53 @@ _sync_qq_images_to_tg() {
 		_url="$(printf '%s' "$_img" | sed -n 's/.*"temp_url":"\([^"]*\)".*/\1/p')"
 		[ -z "$_url" ] && continue
 		_url="$(utf8_decode "$_url")"
-		_st="$(printf '%s' "$_img" | sed -n 's/.*"sub_type":\([0-9]*\).*/\1/p')"
-		# sub_type=1 → GIF animation
-		if [ "$_st" = "1" ]; then
+		# No sub_type from QQ — detect GIF by downloading and checking magic bytes
+		_ts=$(date +%s)
+		_tmp="/tmp/img/sync-qq-$$-$_ts"
+		http_get_file "$_url" "$_tmp" || {
+			# Download failed, fallback to sendPhoto with URL
+			log_err "sync: qq→tg download FAIL, trying URL"; rm -f "$_tmp"
 			if [ -n "$_tthr" ]; then
-				_body="$(json_obj "chat_id" "$_tcid" "animation" "$_url" "caption" "🐧 $_sender: [动画]" "message_thread_id" "$_tthr")"
+				_body="$(json_obj "chat_id" "$_tcid" "photo" "$_url" "caption" "🐧 $_sender: [图片]" "message_thread_id" "$_tthr")"
 			else
-				_body="$(json_obj "chat_id" "$_tcid" "animation" "$_url" "caption" "🐧 $_sender: [动画]")"
+				_body="$(json_obj "chat_id" "$_tcid" "photo" "$_url" "caption" "🐧 $_sender: [图片]")"
 			fi
-			if _tg_api "sendAnimation" "$_body" "sync.gif" >/dev/null; then
+			_tg_api "sendPhoto" "$_body" "sync.img" >/dev/null && _sent=$((_sent + 1))
+			continue
+		}
+		# Check GIF magic bytes (GIF87a or GIF89a)
+		_magic="$(dd if="$_tmp" bs=3 count=1 2>/dev/null)"
+		log_debug "sync: img url=[$_url] magic=[$_magic] sz=$(wc -c <"$_tmp" 2>/dev/null)"
+		if [ "$_magic" = "GIF" ]; then
+			# GIF → sendAnimation (upload via multipart)
+			_bound="ayu-$$-$_ts"
+			_mtmp="/tmp/tg-gif-up-$$"
+			> "$_mtmp"
+			printf '--%s\r\n' "$_bound" >> "$_mtmp"
+			printf 'Content-Disposition: form-data; name="chat_id"\r\n\r\n' >> "$_mtmp"
+			printf '%s\r\n' "$_tcid" >> "$_mtmp"
+			if [ -n "$_tthr" ]; then
+				printf '--%s\r\n' "$_bound" >> "$_mtmp"
+				printf 'Content-Disposition: form-data; name="message_thread_id"\r\n\r\n' >> "$_mtmp"
+				printf '%s\r\n' "$_tthr" >> "$_mtmp"
+			fi
+			printf '--%s\r\n' "$_bound" >> "$_mtmp"
+			printf 'Content-Disposition: form-data; name="animation"; filename="qq-gif.gif"\r\n' >> "$_mtmp"
+			printf 'Content-Type: image/gif\r\n\r\n' >> "$_mtmp"
+			cat "$_tmp" >> "$_mtmp"
+			printf '\r\n--%s--\r\n' "$_bound" >> "$_mtmp"
+			_url="${TG_API_BASE}/sendAnimation"
+			if http_post_file "$_url" "$_mtmp" \
+				"Content-Type: multipart/form-data; boundary=$_bound" \
+				"X-Ayu-Token: ${TG_API_SECRET}" >/dev/null; then
 				_sent=$((_sent + 1)); log_info "sync: qq→tg GIF OK"
 			else
 				log_err "sync: qq→tg GIF FAIL: $_ERROR"
 			fi
+			rm -f "$_mtmp"
 		else
-			# Static image → sendPhoto
+			# Static image → sendPhoto with URL
+			rm -f "$_tmp"
 			if [ -n "$_tthr" ]; then
 				_body="$(json_obj "chat_id" "$_tcid" "photo" "$_url" "caption" "🐧 $_sender: [图片]" "message_thread_id" "$_tthr")"
 			else
@@ -166,6 +198,7 @@ _sync_qq_images_to_tg() {
 				log_err "sync: qq→tg image FAIL: $_ERROR"
 			fi
 		fi
+		rm -f "$_tmp"
 	done
 	log_info "sync: qq→tg images sent=$_sent"
 	[ $_sent -gt 0 ] && return 0 || return 1
