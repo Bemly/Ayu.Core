@@ -404,22 +404,6 @@ sync_handler() {
 	# TG reaction → QQ: lookup mapping and apply reaction
 	if [ "$_evt" = "reaction" ] && [ "$_pf" = "telegram" ]; then
 		_tcid="$3" _tmid="$4" _rdata="$5"
-		_map="/test/var/state/msg-map/$_tcid/$_tmid"
-		if [ -f "$_map" ]; then
-			read -r _gid _rseq < "$_map"
-			_new="$(json_get "$_rdata" new_reaction 2>/dev/null)" || _new=""
-			_emojis="$(printf '%s' "$_new" | grep -o '"emoji":"[^"]*"' | sed 's/"emoji":"//g;s/"//g')"
-			for _emoji in $_emojis; do
-				_ech="$(utf8_decode "$_emoji")"
-				_code="$(printf '%d' "'$_ech" 2>/dev/null)" || _code="$_emoji"
-				qq_group_send_reaction "$_gid" "$_rseq" "$_code" true
-				log_info "sync: tg_reaction→qq $_emoji(${_code}) gid=$_gid seq=$_rseq"
-			done
-		else
-			log_debug "sync: reaction no map $_tcid/$_tmid"
-		fi
-		return 0
-	fi
 	# TG reaction -> QQ: lookup mapping and apply reaction
 	if [ "$_evt" = "reaction" ] && [ "$_pf" = "telegram" ]; then
 		_tcid="$3" _tmid="$4" _rdata="$5"
