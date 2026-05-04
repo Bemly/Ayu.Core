@@ -332,6 +332,40 @@ _sync_tg_photo_to_qq() {
 	fi
 }
 
+# Forward TG sticker to QQ (download from TG via CF Worker, upload to QQ as image)
+_sync_tg_sticker_to_qq() {
+	_raw="$1" _gid="$2"
+	_sticker="$(json_get "$_raw" sticker 2>/dev/null)" || return 1
+	if [ -z "$_sticker" ] || [ "$_sticker" = "NOTFOUND" ]; then return 1; fi
+	_fid="$(printf '%s' "$_sticker" | sed -n 's/.*"file_id":"\([^"]*\)".*/\1/p' | tail -1)"
+	if [ -z "$_fid" ]; then return 1; fi
+	_fp="$(tg_getFile "$_fid" 2>/dev/null)" || _fp=""
+	if [ -z "$_fp" ] || [ "$_fp" = "NOTFOUND" ]; then
+		log_err "sync: tg→qq sticker getFile FAIL"; return 1
+	fi
+	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
+	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then
+		log_err "sync: tg→qq sticker no file_path"; return 1
+	fi
+	_fname="${_path##*/}"
+	_ts=$(date +%s)
+	_tmp="/tmp/img/sync-sticker-tg-$$-$_ts.${_fname##*.}"
+	_furi="file:///root/img/sync-sticker-tg-$$-$_ts.${_fname##*.}"
+	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
+	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || {
+		log_err "sync: tg→qq sticker download FAIL"; rm -f "$_tmp"; return 1
+	}
+	_emoji="$(json_get "$_sticker" emoji 2>/dev/null)" || _emoji=""
+	_lbl="[贴纸]"
+	[ -n "$_emoji" ] && [ "$_emoji" != "NOTFOUND" ] && _lbl="[贴纸: $_emoji]"
+	_img_msg="[{\"type\":\"image\",\"data\":{\"uri\":\"$_furi\",\"summary\":\"$_lbl\"}}]"
+	if qq_message_send_group "$_gid" "$_img_msg" >/dev/null; then
+		log_info "sync: tg→qq sticker OK"; rm -f "$_tmp"; return 0
+	else
+		log_err "sync: tg→qq sticker FAIL: $_ERROR"; rm -f "$_tmp"; return 1
+	fi
+}
+
 # Forward TG animation (GIF) to QQ (download from TG via CF Worker, upload to QQ)
 _sync_tg_animation_to_qq() {
 	_raw="$1" _gid="$2"
@@ -539,6 +573,7 @@ sync_handler() {
 				# Forward photo (TG→QQ)
 				if [ "$_pf" = "telegram" ]; then
 					_sync_tg_photo_to_qq "$_raw" "$_gid"
+					_sync_tg_sticker_to_qq "$_raw" "$_gid"
 				_sync_tg_animation_to_qq "$_raw" "$_gid"
 			_ani="$(json_get "$_raw" animation 2>/dev/null)" || _ani=""; [ -z "$_ani" ] || [ "$_ani" = "NOTFOUND" ] && _sync_tg_document_to_qq "$_raw" "$_gid"
 				fi
