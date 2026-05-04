@@ -116,10 +116,15 @@ exec 3<&0 3>&1
 cat "$_hreq" | ssl_client -s 3 -n "\$SNI_HOST" | sed '1,/^\r\$/d' > "\$OUTFILE"
 ENDWRAP
 				chmod +x "$_hwrap"
+				_herr="/tmp/ayu-ssl-err.$$"
 				OUTFILE="$_HTTP_OUTFILE" SNI_HOST="$_hhost" \
-					nc "$_hhost" "$_hport" -e "$_hwrap" -w "$_HTTP_TIMEOUT" >/dev/null 2>&1
+					nc "$_hhost" "$_hport" -e "$_hwrap" -w "$_HTTP_TIMEOUT" >/dev/null 2>"$_herr"
 				_hrc=$?
-				rm -f "$_hwrap"
+				if [ $_hrc -ne 0 ] || [ ! -s "$_HTTP_OUTFILE" ]; then
+					_errmsg="$(tr '\n' ' ' <"$_herr" 2>/dev/null)"
+					log_err "_http_raw https-file fail: hrc=$_hrc outSz=$(wc -c <"$_HTTP_OUTFILE" 2>/dev/null) ncerr=[$_errmsg] url=$_hrurl"
+				fi
+				rm -f "$_hwrap" "$_herr"
 				;;
 			*)
 				cat "$_hreq" | nc "$_hhost" "$_hport" -w "$_HTTP_TIMEOUT" \
