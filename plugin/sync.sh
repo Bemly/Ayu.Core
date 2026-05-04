@@ -43,6 +43,27 @@ _reaction_code() {
 	fi
 }
 
+
+# _tg_emoji_to_qq_face <raw_emoji> -> QQ face ID string (empty if no mapping)
+# QQ protocol only accepts system face IDs (1-326), not Unicode codepoints
+_tg_emoji_to_qq_face() {
+    case "$1" in
+        "👍") echo "76" ;; "❤️"|"❤"|"💓"|"💗") echo "66" ;;
+        "😂"|"😆") echo "182" ;; "😢") echo "5" ;;
+        "😡"|"🤬") echo "326" ;; "👏") echo "99" ;;
+        "🎉") echo "320" ;; "😱") echo "26" ;;
+        "🔥") echo "85" ;; "💯") echo "86" ;;
+        "😍") echo "116" ;; "😘"|"😚") echo "109" ;;
+        "🤗") echo "222" ;; "🙏") echo "297" ;;
+        "👌") echo "124" ;; "✌️"|"✌") echo "79" ;;
+        "😁") echo "14" ;; "😎") echo "16" ;;
+        "😭") echo "9" ;; "😅") echo "97" ;;
+        "🤔") echo "15" ;; "😴") echo "8" ;;
+        "😋") echo "21" ;; "😳") echo "96" ;;
+        "😤") echo "100" ;; "😈") echo "101" ;;
+        *) echo "" ;;
+    esac
+}
 _sync_get_sender() {
 	_pf="$1" _raw="$2"
 	case "$_pf" in
@@ -410,7 +431,8 @@ sync_handler() {
 			_new="$(json_get "$_rdata" new_reaction 2>/dev/null)" || _new=""
 			_emojis="$(printf '%s' "$_new" | grep -o '"emoji":"[^"]*"' | sed 's/"emoji":"//g;s/"//g')"
 			for _emoji in $_emojis; do
-				_code="$(_reaction_code "$_emoji")"
+				_code="$(_tg_emoji_to_qq_face "$_emoji")"
+				[ -z "$_code" ] && continue
 				qq_group_send_reaction "$_gid" "$_rseq" "$_code" true
 				log_info "sync: tg_reaction->qq $_emoji(${_code}) gid=$_gid seq=$_rseq"
 			done
