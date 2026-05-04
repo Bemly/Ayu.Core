@@ -1,7 +1,7 @@
 # test/test_sync.sh — cross-platform sync tests (no accounts needed)
 # Uses mock_http to simulate API responses
 
-. ./plugin/sync.sh
+. ./plugin/sync/handler.sh
 
 test_sync_qq_to_telegram() {
     _SYNC_CONF="/tmp/sync-test-$$.conf"

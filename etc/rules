@@ -6,4 +6,4 @@
 /ping|qq/handler.sh|handler_ping
 /echo|qq/handler.sh|handler_echo
 /info|qq/handler.sh|handler_info
-*|../plugin/sync.sh|sync_handler
+*|../plugin/sync/handler.sh|sync_handler
