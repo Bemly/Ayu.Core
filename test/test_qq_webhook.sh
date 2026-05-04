@@ -98,6 +98,16 @@ test_qq_extract_empty() {
 	assert_eq "$_r" "" "extract empty segments"
 }
 
+test_qq_extract_gif() {
+	_r="$(qq_extract_text '{"segments":[{"type":"image","data":{"resource_id":"r1","temp_url":"http://x/a.gif","width":480,"height":360,"sub_type":1}}]}')"
+	assert_eq "$_r" "[图片]" "extract GIF image segment (sub_type=1)"
+}
+
+test_qq_extract_static_image() {
+	_r="$(qq_extract_text '{"segments":[{"type":"image","data":{"resource_id":"r2","temp_url":"http://x/b.jpg","width":800,"height":600,"sub_type":0}}]}')"
+	assert_eq "$_r" "[图片]" "extract static image segment (sub_type=0)"
+}
+
 test_qq_extract_image
 test_qq_extract_face
 test_qq_extract_record
@@ -109,6 +119,8 @@ test_qq_extract_reply
 test_qq_extract_forward
 test_qq_extract_mixed
 test_qq_extract_empty
+test_qq_extract_gif
+test_qq_extract_static_image
 test_webhook_message_receive
 test_webhook_group_nudge
 test_webhook_friend_request

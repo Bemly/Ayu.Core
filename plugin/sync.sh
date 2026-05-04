@@ -121,33 +121,50 @@ _sync_tg_multipart() {
 	fi
 }
 
-# Forward QQ images to TG (download from temp_url, upload via multipart)
+# Forward QQ images to TG (GIF→sendAnimation, static→sendPhoto)
 _sync_qq_images_to_tg() {
 	_raw="$1" _tcid="$2" _tthr="$3" _sender="$4"
 	_segs="$(json_get "$_raw" segments 2>/dev/null)" || _segs=""
 	if [ -z "$_segs" ] || [ "$_segs" = "NOTFOUND" ]; then return 1; fi
-	_urls="$(printf '%s' "$_segs" | sed 's/},{"type"/\
-{"type"/g' | sed -n 's/.*"temp_url":"\([^"]*\)".*/\1/p')"
-	if [ -z "$_urls" ]; then
+	# Split segments and filter image type (check sub_type for GIF)
+	_imgs="$(printf '%s' "$_segs" | sed 's/},{"type"/\
+{"type"/g' | grep '"type":"image"')"
+	if [ -z "$_imgs" ]; then
 		log_info "sync: img segs=$(printf '%.200s' "$_segs")"
 		return 1
 	fi
 	_sent=0
 	IFS='
 '
-	for _url in $_urls; do
+	for _img in $_imgs; do
+		_url="$(printf '%s' "$_img" | sed -n 's/.*"temp_url":"\([^"]*\)".*/\1/p')"
 		[ -z "$_url" ] && continue
 		_url="$(utf8_decode "$_url")"
-		# TG sendPhoto accepts URL — Telegram servers download it
-		if [ -n "$_tthr" ]; then
-			_body="$(json_obj "chat_id" "$_tcid" "photo" "$_url" "caption" "🐧 $_sender: [图片]" "message_thread_id" "$_tthr")"
+		_st="$(printf '%s' "$_img" | sed -n 's/.*"sub_type":\([0-9]*\).*/\1/p')"
+		# sub_type=1 → GIF animation
+		if [ "$_st" = "1" ]; then
+			if [ -n "$_tthr" ]; then
+				_body="$(json_obj "chat_id" "$_tcid" "animation" "$_url" "caption" "🐧 $_sender: [动画]" "message_thread_id" "$_tthr")"
+			else
+				_body="$(json_obj "chat_id" "$_tcid" "animation" "$_url" "caption" "🐧 $_sender: [动画]")"
+			fi
+			if _tg_api "sendAnimation" "$_body" "sync.gif" >/dev/null; then
+				_sent=$((_sent + 1)); log_info "sync: qq→tg GIF OK"
+			else
+				log_err "sync: qq→tg GIF FAIL: $_ERROR"
+			fi
 		else
-			_body="$(json_obj "chat_id" "$_tcid" "photo" "$_url" "caption" "🐧 $_sender: [图片]")"
-		fi
-		if _tg_api "sendPhoto" "$_body" "sync.img" >/dev/null; then
-			_sent=$((_sent + 1)); log_info "sync: qq→tg image OK"
-		else
-			log_err "sync: qq→tg image FAIL: $_ERROR"
+			# Static image → sendPhoto
+			if [ -n "$_tthr" ]; then
+				_body="$(json_obj "chat_id" "$_tcid" "photo" "$_url" "caption" "🐧 $_sender: [图片]" "message_thread_id" "$_tthr")"
+			else
+				_body="$(json_obj "chat_id" "$_tcid" "photo" "$_url" "caption" "🐧 $_sender: [图片]")"
+			fi
+			if _tg_api "sendPhoto" "$_body" "sync.img" >/dev/null; then
+				_sent=$((_sent + 1)); log_info "sync: qq→tg image OK"
+			else
+				log_err "sync: qq→tg image FAIL: $_ERROR"
+			fi
 		fi
 	done
 	log_info "sync: qq→tg images sent=$_sent"
@@ -247,6 +264,38 @@ _sync_tg_photo_to_qq() {
 		log_info "sync: tg→qq image OK"; rm -f "$_tmp"; return 0
 	else
 		log_err "sync: tg→qq image FAIL: $_ERROR"; rm -f "$_tmp"; return 1
+	fi
+}
+
+# Forward TG animation (GIF) to QQ (download from TG via CF Worker, upload to QQ)
+_sync_tg_animation_to_qq() {
+	_raw="$1" _gid="$2"
+	_ani="$(json_get "$_raw" animation 2>/dev/null)" || return 1
+	if [ -z "$_ani" ] || [ "$_ani" = "NOTFOUND" ]; then return 1; fi
+	_fid="$(printf '%s' "$_ani" | sed -n 's/.*"file_id":"\([^"]*\)".*/\1/p' | tail -1)"
+	if [ -z "$_fid" ]; then return 1; fi
+	_fp="$(tg_getFile "$_fid" 2>/dev/null)" || _fp=""
+	if [ -z "$_fp" ] || [ "$_fp" = "NOTFOUND" ]; then
+		log_err "sync: tg→qq animation getFile FAIL"; return 1
+	fi
+	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
+	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then
+		log_err "sync: tg→qq animation no file_path"; return 1
+	fi
+	_fname="${_path##*/}"
+	_ts=$(date +%s)
+	_tmp="/tmp/img/sync-gif-tg-$$-$_ts.${_fname##*.}"
+	_furi="file:///root/img/sync-gif-tg-$$-$_ts.${_fname##*.}"
+	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
+	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || {
+		log_err "sync: tg→qq animation download FAIL"; rm -f "$_tmp"; return 1
+	}
+	# Build image segment array → send via send_group_message
+	_img_msg="[{\"type\":\"image\",\"data\":{\"uri\":\"$_furi\",\"summary\":\"[动画]\"}}]"
+	if qq_message_send_group "$_gid" "$_img_msg" >/dev/null; then
+		log_info "sync: tg→qq animation OK"; rm -f "$_tmp"; return 0
+	else
+		log_err "sync: tg→qq animation FAIL: $_ERROR"; rm -f "$_tmp"; return 1
 	fi
 }
 
@@ -385,6 +434,7 @@ sync_handler() {
 				# Forward photo (TG→QQ)
 				if [ "$_pf" = "telegram" ]; then
 					_sync_tg_photo_to_qq "$_raw" "$_gid"
+				_sync_tg_animation_to_qq "$_raw" "$_gid"
 				_sync_tg_document_to_qq "$_raw" "$_gid"
 				fi
 				;;
