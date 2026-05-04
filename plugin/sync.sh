@@ -581,14 +581,49 @@ _sync_tg_voice_to_qq() {
 
 # Forward TG video to QQ (download via CF Worker, upload as QQ video segment)
 _sync_tg_video_to_qq() {
+
+# Forward TG audio to QQ (download via CF Worker, upload as QQ file)
+_sync_tg_audio_to_qq() {
+	_raw="$1" _gid="$2"
+	_audio="$(json_get "$_raw" audio 2>/dev/null)" || return 1
+	if [ -z "$_audio" ] || [ "$_audio" = "NOTFOUND" ]; then return 1; fi
+	_fid="$(json_get "$_audio" file_id 2>/dev/null)" || _fid=""
+	if [ -z "$_fid" ] || [ "$_fid" = "NOTFOUND" ]; then return 1; fi
+	_title="$(json_get "$_audio" title 2>/dev/null)" || _title=""
+	[ "$_title" = "NOTFOUND" ] && _title=""
+	_fp="$(tg_getFile "$_fid" 2>/dev/null)" || _fp=""
+	if [ -z "$_fp" ] || [ "$_fp" = "NOTFOUND" ]; then
+		log_err "sync: tg-qq audio getFile FAIL"; return 1
+	fi
+	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
+	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then
+		log_err "sync: tg-qq audio no file_path"; return 1
+	fi
+	_fname="${_path##*/}"
+	_ts=$(date +%s)
+	_tmp="/tmp/img/sync-audio-tg-$$-$_ts.${_fname##*.}"
+	_furi="file:///root/img/sync-audio-tg-$$-$_ts.${_fname##*.}"
+	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
+	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || {
+		log_err "sync: tg-qq audio download FAIL"; rm -f "$_tmp"; return 1
+	}
+	_fn="audio"
+	[ -n "$_title" ] && _fn="${_title}.${_fname##*.}"
+	if qq_file_upload_group "$_gid" "$_furi" "$_fn" >/dev/null; then
+		log_info "sync: tg-qq audio OK"; rm -f "$_tmp"; return 0
+	else
+		log_err "sync: tg-qq audio FAIL: $_ERROR"; rm -f "$_tmp"; return 1
+	fi
+}
 	_raw="$1" _gid="$2"
 	_video="$(json_get "$_raw" video 2>/dev/null)" || return 1
 	if [ -z "$_video" ] || [ "$_video" = "NOTFOUND" ]; then return 1; fi
 	_fid="$(json_get "$_video" file_id 2>/dev/null)" || _fid=""
 	if [ -z "$_fid" ] || [ "$_fid" = "NOTFOUND" ]; then return 1; fi
+		log_debug "sync: tg-qq video fid=$_fid"
 	_fp="$(tg_getFile "$_fid" 2>/dev/null)" || _fp=""
 	if [ -z "$_fp" ] || [ "$_fp" = "NOTFOUND" ]; then
-		log_err "sync: tg-qq video getFile FAIL"; return 1
+		log_err "sync: tg-qq video getFile FAIL fid=$_fid"; return 1
 	fi
 	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
 	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then
@@ -779,7 +814,7 @@ sync_handler() {
 				# Forward photo (TG→QQ)
 				if [ "$_pf" = "telegram" ]; then
 					_sync_tg_voice_to_qq "$_raw" "$_gid"
-					_sync_tg_video_to_qq "$_raw" "$_gid"
+ttttt_sync_tg_audio_to_qq "$_raw" "$_gid"					_sync_tg_video_to_qq "$_raw" "$_gid"
 					_sync_tg_photo_to_qq "$_raw" "$_gid"
 					_sync_tg_sticker_to_qq "$_raw" "$_gid"
 				_sync_tg_animation_to_qq "$_raw" "$_gid"
