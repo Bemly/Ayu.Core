@@ -339,6 +339,10 @@ _sync_tg_sticker_to_qq() {
 	if [ -z "$_sticker" ] || [ "$_sticker" = "NOTFOUND" ]; then return 1; fi
 	_fid="$(printf '%s' "$_sticker" | sed -n 's/.*"file_id":"\([^"]*\)".*/\1/p' | tail -1)"
 	if [ -z "$_fid" ]; then return 1; fi
+	_ian="$(json_get "$_sticker" is_animated 2>/dev/null)" || _ian=""
+	_ivd="$(json_get "$_sticker" is_video 2>/dev/null)" || _ivd=""
+	_stp="$(json_get "$_sticker" type 2>/dev/null)" || _stp=""
+	log_info "sync: sticker fid=$_fid animated=$_ian video=$_ivd type=$_stp"
 	_fp="$(tg_getFile "$_fid" 2>/dev/null)" || _fp=""
 	if [ -z "$_fp" ] || [ "$_fp" = "NOTFOUND" ]; then
 		log_err "sync: tg→qq sticker getFile FAIL"; return 1
@@ -347,6 +351,7 @@ _sync_tg_sticker_to_qq() {
 	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then
 		log_err "sync: tg→qq sticker no file_path"; return 1
 	fi
+	log_info "sync: sticker path=$_path"
 	_fname="${_path##*/}"
 	_ts=$(date +%s)
 	_tmp="/tmp/img/sync-sticker-tg-$$-$_ts.${_fname##*.}"
@@ -355,6 +360,12 @@ _sync_tg_sticker_to_qq() {
 	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || {
 		log_err "sync: tg→qq sticker download FAIL"; rm -f "$_tmp"; return 1
 	}
+	_sz=$(wc -c < "$_tmp" 2>/dev/null)
+	log_info "sync: sticker downloaded sz=$_sz tmp=$_tmp"
+	# Video/animated stickers (WEBM/TGS) can't be sent as QQ image — pic compress error
+	if [ "$_ivd" = "true" ] || [ "$_ian" = "true" ]; then
+		log_info "sync: tg→qq sticker skip (video=$_ivd animated=$_ian)"; rm -f "$_tmp"; return 0
+	fi
 	_emoji="$(json_get "$_sticker" emoji 2>/dev/null)" || _emoji=""
 	_lbl="[贴纸]"
 	[ -n "$_emoji" ] && [ "$_emoji" != "NOTFOUND" ] && _lbl="[贴纸: $_emoji]"
