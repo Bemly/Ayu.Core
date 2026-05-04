@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Target Runtime
 
-All code runs inside **busybox:musl** (1.37.0) Docker container via OrbStack. No bash, no gawk, no curl, no jq, no Python. Available: hush shell, busybox awk, sed, grep, wget, httpd.
+All code runs inside **busybox:musl** (1.37.0) Docker container via OrbStack. No bash, no gawk, no curl, no jq, no Python. Available: hush shell, busybox awk, sed, grep, nc, ssl_client, httpd.
 
 **Critical: Always test inside the busybox container, never on macOS.** macOS BSD tools differ significantly from BusyBox implementations.
 
@@ -116,8 +116,10 @@ docker run --rm -v $(pwd):/test busybox:musl hush /test/test/run.sh
 # 3. Only after 0 failures, deploy to NAS
 sshpass -p '...' scp file.sh fnOS:/tmp/ && \
   ssh fnOS 'sudo cp /tmp/file.sh /vol1/1000/Ayu/path/file.sh && sudo chmod +x /vol1/1000/Ayu/path/file.sh'
-# 4. Restart httpd on NAS
-sudo docker exec Ayu sh -c 'killall httpd; cd /test && hush cgi-bin/start.sh'
+# 4. Fix ALL permissions (CGI scripts silently fail without +x)
+ssh fnOS 'sudo find /vol1/1000/Ayu -name "*.sh" -exec chmod +x {} \; && sudo chmod 777 /vol1/1000/Ayu/var/log'
+# 5. Restart httpd on NAS
+ssh fnOS 'sudo docker exec Ayu sh -c "killall httpd; cd /test && hush cgi-bin/start.sh"'
 ```
 
 **Exception:** `etc/config.sh` and `etc/sync.conf` NAS values (tokens, hostnames) differ from local defaults. These can be edited on NAS directly or via env vars.
@@ -129,6 +131,17 @@ sudo docker exec Ayu sh -c 'killall httpd; cd /test && hush cgi-bin/start.sh'
 - **Refactor repeated patterns into helpers**: when the same `_qq_call + json_get + error wrap` pattern appears across 20+ functions, extract ONE `_qq_api()` helper. Don't edit each copy individually.
 - **Avoid `$()` for function calls that set `_ERROR`**: `$()` is a subshell, globals are lost. Use temp files.
 - **`_ERROR` chain**: always prepend, never overwrite. Format: `module.func: $_ERROR`
+
+## HTTP Transport (nc + ssl_client)
+
+**Ayu.Core does NOT use wget.** All HTTP/HTTPS goes through `lib/http.sh` which uses raw TCP + TLS:
+
+- **HTTP**: `cat request | nc host port`
+- **HTTPS**: `nc host 443 -e wrapper.sh` where wrapper pipes through `ssl_client -s FD -n SNI`
+
+**Why not wget**: BusyBox wget `--post-file` reads via C stdlib which treats `\x00` as string terminator, silently truncating binary data. `--post-data` has the same issue (shell args are null-terminated). Images and files must preserve all byte values. See memory: wget-binary-null-byte.md, nc-ssl-client.md.
+
+All internal variables in `http.sh` use `_h` prefix (`_hraw`, `_hbody`, etc.) to avoid hush global variable collisions. **Never add variables named `_raw`, `_body`, or `_res` to http.sh** — they will corrupt callers that use those names.
 
 ## Proxy
 

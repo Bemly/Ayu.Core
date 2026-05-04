@@ -154,15 +154,14 @@ _sync_qq_images_to_tg() {
 	[ $_sent -gt 0 ] && return 0 || return 1
 }
 
-# Forward QQ files to TG (get download URL, send via sendDocument)
+# Forward QQ files to TG (download, then multipart upload via sendDocument)
 _sync_qq_files_to_tg() {
-	_raw="$1" _tcid="$2" _tthr="$3" _sender="$4"
+	_raw="$1" _tcid="$2" _tthr="$3" _sender="$4" _gid="$5"
 	_segs="$(json_get "$_raw" segments 2>/dev/null)" || _segs=""
 	if [ -z "$_segs" ] || [ "$_segs" = "NOTFOUND" ]; then return 1; fi
 	_files="$(printf '%s' "$_segs" | sed 's/},{"type"/\
 {"type"/g' | grep '"type":"file"')"
 	if [ -z "$_files" ]; then return 1; fi
-	_gid="$(json_get "$_raw" group_id 2>/dev/null)" || _gid=""
 	_sent=0
 	IFS='
 '
@@ -170,23 +169,50 @@ _sync_qq_files_to_tg() {
 		_fid="$(printf '%s' "$_f" | sed -n 's/.*"file_id":"\([^"]*\)".*/\1/p')"
 		_fn="$(printf '%s' "$_f" | sed -n 's/.*"file_name":"\([^"]*\)".*/\1/p')"
 		[ -z "$_fid" ] && continue
+		_fn="$(utf8_decode "$_fn")"
 		_dl="$(qq_file_get_download_url "$_gid" "$_fid" 2>/dev/null)" || _dl=""
 		if [ -z "$_dl" ] || [ "$_dl" = "NOTFOUND" ]; then
-			log_err "sync: qq→tg file no url fid=$_fid"; continue
+			log_err "sync: qq→tg file no url fid=$_fid dl=[$_dl]"; continue
 		fi
 		_url="$(json_get "$_dl" download_url 2>/dev/null)" || _url=""
 		[ -z "$_url" ] && _url="$_dl"
 		_url="$(utf8_decode "$_url")"
+		# Download file from QQ CDN
+		_ts=$(date +%s)
+		_ext="${_fn##*.}"
+		[ "$_ext" = "$_fn" ] && _ext=""
+		[ -n "$_ext" ] && _ext=".$_ext"
+		_ltmp="/tmp/img/sync-file-qq-$$-$_ts$_ext"
+		http_get_file "$_url" "$_ltmp" || {
+			log_err "sync: qq→tg file download FAIL"; rm -f "$_ltmp"; continue
+		}
+		# Multipart upload to TG via sendDocument
+		_bound="ayu-$$-$_ts"
+		_mtmp="/tmp/tg-up-$$"
+		> "$_mtmp"
+		printf '--%s\r\n' "$_bound" >> "$_mtmp"
+		printf 'Content-Disposition: form-data; name="chat_id"\r\n\r\n' >> "$_mtmp"
+		printf '%s\r\n' "$_tcid" >> "$_mtmp"
 		if [ -n "$_tthr" ]; then
-			_body="$(json_obj "chat_id" "$_tcid" "document" "$_url" "caption" "🐧 $_sender: [文件] $_fn" "message_thread_id" "$_tthr")"
-		else
-			_body="$(json_obj "chat_id" "$_tcid" "document" "$_url" "caption" "🐧 $_sender: [文件] $_fn")"
+			printf '--%s\r\n' "$_bound" >> "$_mtmp"
+			printf 'Content-Disposition: form-data; name="message_thread_id"\r\n\r\n' >> "$_mtmp"
+			printf '%s\r\n' "$_tthr" >> "$_mtmp"
 		fi
-		if _tg_api "sendDocument" "$_body" "sync.file" >/dev/null; then
+		printf '--%s\r\n' "$_bound" >> "$_mtmp"
+		printf 'Content-Disposition: form-data; name="document"; filename="%s"\r\n' "$_fn" >> "$_mtmp"
+		printf 'Content-Type: application/octet-stream\r\n\r\n' >> "$_mtmp"
+		cat "$_ltmp" >> "$_mtmp"
+		printf '\r\n' >> "$_mtmp"
+		printf '--%s--\r\n' "$_bound" >> "$_mtmp"
+		_url="${TG_API_BASE}/sendDocument"
+		if http_post_file "$_url" "$_mtmp" \
+			"Content-Type: multipart/form-data; boundary=$_bound" \
+			"X-Ayu-Token: ${TG_API_SECRET}" >/dev/null; then
 			_sent=$((_sent + 1)); log_info "sync: qq→tg file OK"
 		else
 			log_err "sync: qq→tg file FAIL: $_ERROR"
 		fi
+		rm -f "$_ltmp" "$_mtmp"
 	done
 	log_info "sync: qq→tg files sent=$_sent"
 	[ $_sent -gt 0 ] && return 0 || return 1
@@ -232,6 +258,7 @@ _sync_tg_document_to_qq() {
 	_fid="$(json_get "$_doc" file_id 2>/dev/null)" || _fid=""
 	if [ -z "$_fid" ] || [ "$_fid" = "NOTFOUND" ]; then return 1; fi
 	_fn="$(json_get "$_doc" file_name 2>/dev/null)" || _fn="file"
+	_fn="$(utf8_decode "$_fn")"
 	_fp="$(tg_getFile "$_fid" 2>/dev/null)" || _fp=""
 	if [ -z "$_fp" ] || [ "$_fp" = "NOTFOUND" ]; then
 		log_err "sync: tg→qq file getFile FAIL"; return 1
@@ -250,10 +277,11 @@ _sync_tg_document_to_qq() {
 	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || {
 		log_err "sync: tg→qq file download FAIL"; rm -f "$_tmp"; return 1
 	}
-	if qq_file_upload_group "$_gid" "$_furi" "$_fn" >/dev/null 2>/dev/null; then
-		log_info "sync: tg→qq file OK"; rm -f "$_tmp"; return 0
+	_errf="/tmp/qq-up-err.$$"
+	if qq_file_upload_group "$_gid" "$_furi" "$_fn" >"$_errf" 2>"$_errf"; then
+		log_info "sync: tg→qq file OK"; rm -f "$_tmp" "$_errf"; return 0
 	else
-		log_err "sync: tg→qq file FAIL: $_ERROR"; rm -f "$_tmp"; return 1
+		log_err "sync: tg→qq file FAIL: _ERROR=[$_ERROR] qq_resp=[$(cat $_errf 2>/dev/null)]"; rm -f "$_tmp" "$_errf"; return 1
 	fi
 }
 
@@ -342,7 +370,7 @@ sync_handler() {
 			# Forward images (QQ→TG)
 			if [ "$_pf" = "qq" ]; then
 				_sync_qq_images_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender"
-				_sync_qq_files_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender"
+				_sync_qq_files_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender" "${_sid#group/}"
 			fi
 			;;
 		qq)

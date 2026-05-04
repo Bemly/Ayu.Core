@@ -2,7 +2,7 @@
 
 > [中文文档](README.zh.md)
 
-Pure shell SNS Bot framework. Runs in busybox:musl container, hush + httpd CGI + wget + [hush-json](https://github.com/Bemly/hush-json).
+Pure shell SNS Bot framework. Runs in busybox:musl container, hush + httpd CGI + raw TLS transport + [hush-json](https://github.com/Bemly/hush-json).
 
 [![test](https://github.com/Bemly/Ayu.Core/actions/workflows/test.yml/badge.svg)](https://github.com/Bemly/Ayu.Core/actions/workflows/test.yml)
 
@@ -18,7 +18,7 @@ Pure shell SNS Bot framework. Runs in busybox:musl container, hush + httpd CGI +
 
 ```
 Request flow:
-  Platform → webhook → httpd CGI → router.sh → adapter → dispatch.sh → handler → adapter → wget → Platform
+  Platform → webhook → httpd CGI → router.sh → adapter → dispatch.sh → handler → adapter → nc+ssl_client → Platform
 
 Ayu.Core/
 ├── cgi-bin/                # CGI scripts (busybox httpd hardcodes /cgi-bin/)
@@ -26,7 +26,7 @@ Ayu.Core/
 │   └── router.sh           # CGI entry (platform routing + token auth)
 ├── lib/
 │   ├── core.sh             # _ERROR chain, die(), hush-json + hush-url bootstrap
-│   ├── http.sh             # wget wrapper (GET/POST, retry, proxy auto-detect)
+│   ├── http.sh             # HTTP/HTTPS via nc + ssl_client (GET/POST, retry, chunked decode)
 │   ├── dispatch.sh         # Message routing + plugin interface (etc/rules)
 │   ├── log.sh              # Leveled logging (debug/info/warn/err)
 │   └── url.sh              # url_encode/decode + utf8_decode (\uXXXX→UTF-8)
@@ -35,9 +35,9 @@ Ayu.Core/
 │   ├── telegram/           # Telegram — 17 files, 20 Update types, 18 content types
 │   └── discord/            # Discord — 17 files (REST only)
 ├── plugin/                 # Business logic
-│   └── sync.sh             # Cross-platform sync (🐧✈️👾 emoji icons)
+│   └── sync.sh             # Cross-platform sync (text + image + file, bidirectional)
 ├── etc/                    # config.sh, rules, sync.conf, config.nas.sh (gitignored)
-└── test/                   # 129 tests, 0 failures (mock_wget, no API keys)
+└── test/                   # 129 tests, 0 failures (mock_http, no API keys)
 ```
 
 ## Quick Start
@@ -71,8 +71,8 @@ QQ_PORT="616"
 QQ_TOKEN=""                      # set via env or config.nas.sh
 
 TG_TOKEN=""                      # Bot token from @BotFather
-TG_API_HOST="api.telegram.org"   # use tghook.bemly.moe (CF Worker) to bypass GFW
-TG_API_SECRET=""                 # X-Ayu-Token header for CF WAF
+TG_API_HOST="api.telegram.org"   # use a CF Worker for network accessibility
+TG_API_SECRET=""                 # X-Ayu-Token header for edge authentication
 
 DC_TOKEN=""
 
@@ -116,7 +116,7 @@ Rules are matched first-to-last. Commands match first; the `*` fallback forwards
 
 ## Cross-Platform Sync
 
-Messages from one platform auto-forward to the others. Non-text content (images, stickers, voice, etc.) is converted to descriptive labels.
+Messages from one platform auto-forward to the others. Images and files are downloaded locally then re-uploaded (not URL pass-through), preserving content integrity end-to-end.
 
 | From→To | Prefix | Loop Prevention |
 |---------|--------|-----------------|
@@ -124,7 +124,7 @@ Messages from one platform auto-forward to the others. Non-text content (images,
 | TG→QQ | `✈️ 用户: 消息` | emoji prefix + bot sender ID |
 | →DC | `👾 用户: 消息` | (not implemented) |
 
-**Content types handled**: text, image, sticker, GIF, voice, video, file, reply, forward, location, contact, dice, poll, service messages (join/leave/pin), and more. See adapter READMEs for complete type tables.
+**Content types**: text, image, file, sticker, GIF, voice, video, reply, forward, location, contact, dice, poll. See adapter READMEs for complete type tables.
 
 **1. Configure mappings** in `etc/sync.conf`:
 
@@ -136,7 +136,7 @@ telegram/-100111=qq/group/123456            # TG group → QQ group
 
 **2. Enable** with the `*` rule in `etc/rules` (included by default).
 
-**Limitation**: Discord→QQ/TG requires Gateway (WebSocket), not feasible in pure shell. QQ↔Telegram is fully bidirectional.
+**Limitation**: Discord→QQ/TG requires Gateway (WebSocket), not feasible in pure shell. QQ↔Telegram is fully bidirectional including images and files.
 
 ## Webhook Auth
 
@@ -144,20 +144,38 @@ Set `WEBHOOK_SECRET` to require `?token=<secret>` in all webhook URLs. Router re
 
 The token supports special characters (`#`, `<`, `;`) via URL encoding — `url_encode`/`url_decode` handle encoding automatically.
 
-## Telegram + GFW Bypass
+## HTTP Transport
 
-If `api.telegram.org` is blocked, use a Cloudflare Worker as forward proxy:
+Ayu.Core uses raw TCP + TLS for all HTTP/HTTPS requests — `nc` for TCP connections, `ssl_client` for TLS wrapping. No `wget` or `curl`.
 
-1. Create CF Worker that proxies to `api.telegram.org`
-2. Set `TG_API_HOST=your-worker.example.com`
-3. Ayu calls Worker via HTTPS (busybox wget supports TLS 1.0, configure Cloudflare accordingly)
+**Why not wget**: BusyBox wget's `--post-file` reads via C standard library which treats `\x00` (null byte) as string terminator, silently truncating binary data. `--post-data` has the same limitation since shell arguments are null-terminated. Image and file transfers must preserve all byte values, making wget unsuitable for binary payloads.
+
+**How it works**:
+
+| Protocol | Transport |
+|----------|-----------|
+| HTTP (QQ API) | `cat request | nc host port` |
+| HTTPS (Telegram/Discord) | `nc host 443 -e wrapper` where wrapper pipes request through `ssl_client -s FD -n SNI` |
+
+The raw HTTP response is parsed to extract status code and body, with chunked transfer encoding reassembly. All internal variables use `_h` prefix to avoid hush global variable collisions.
+
+## Regional Network Considerations
+
+If `api.telegram.org` or `discord.com` are unreachable from your deployment environment, use a Cloudflare Worker or similar edge compute service as a forward proxy:
+
+1. Deploy a CF Worker that proxies requests to the target API
+2. Set `TG_API_HOST=your-worker.example.com` (and `DC_API_BASE` for Discord)
+3. Workers deployed at the edge typically have direct peering to major API providers
+4. Use `X-Ayu-Token` or similar custom headers for WAF authentication at the edge
+
+Ayu.Core negotiates TLS natively via OpenSSL-based `ssl_client` (bundled in busybox). No external CA bundle or certificate store is required.
 
 ## Error Handling
 
 hush has no `trap ERR`. Errors **prepend** at each layer (never overwrite):
 
 ```
-qq.send_group: qq.send_group_message: http_post failed: http://x:8080/api/... (connection refused)
+qq.send_group: qq.send_group_message: http failed after 2 retries: http://x:8080/api/... (connection refused)
 ```
 
 ```sh
@@ -170,7 +188,7 @@ json_get "$resp" key || die "missing key"
 ## Tests
 
 ```sh
-# All tests (mock_wget, no API keys required)
+# All tests (mock_http, no API keys required)
 docker run --rm -v $(pwd):/test busybox:musl hush /test/test/run.sh
 
 # Single category
@@ -183,8 +201,8 @@ docker run --rm -v $(pwd):/test busybox:musl hush -c "
 
 ## Constraints
 
-- **busybox:musl** — no bash, gawk, curl, jq
-- **wget** — GET/POST only, TLS 1.0 (needs CF minimum TLS set to 1.0)
+- **busybox:musl** — no bash, gawk, curl, jq, Python
+- **nc + ssl_client** — raw TCP + TLS transport (replaces wget for binary-safe I/O)
 - **httpd CGI** — path hardcoded to `/cgi-bin/`, `H:` does NOT enable CGI
 - **hush** — no arrays, no `trap ERR`, no local variables
 - **awk** — var names ≤3 chars, `"\n"` is literal

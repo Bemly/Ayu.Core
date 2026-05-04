@@ -2,7 +2,7 @@
 
 > [English](README.md)
 
-纯 shell SNS Bot 框架。运行在 busybox:musl 容器中，hush + httpd CGI + wget + [hush-json](https://github.com/Bemly/hush-json)。
+纯 shell SNS Bot 框架。运行在 busybox:musl 容器中，hush + httpd CGI + 原生 TLS 传输 + [hush-json](https://github.com/Bemly/hush-json)。
 
 [![test](https://github.com/Bemly/Ayu.Core/actions/workflows/test.yml/badge.svg)](https://github.com/Bemly/Ayu.Core/actions/workflows/test.yml)
 
@@ -18,7 +18,7 @@
 
 ```
 请求流:
-  SNS平台 → webhook → httpd CGI → router.sh → adapter → dispatch.sh → handler → adapter → wget → SNS平台
+  SNS平台 → webhook → httpd CGI → router.sh → adapter → dispatch.sh → handler → adapter → nc+ssl_client → SNS平台
 
 Ayu.Core/
 ├── cgi-bin/                # CGI 脚本 (busybox httpd 写死 /cgi-bin/)
@@ -26,7 +26,7 @@ Ayu.Core/
 │   └── router.sh           # CGI 入口 (平台路由 + token 鉴权)
 ├── lib/
 │   ├── core.sh             # _ERROR 链, die(), hush-json + hush-url 引导
-│   ├── http.sh             # wget 封装 (GET/POST, 重试, 代理自动检测)
+│   ├── http.sh             # HTTP/HTTPS via nc + ssl_client (GET/POST, 重试, chunked 解码)
 │   ├── dispatch.sh         # 消息路由 + 插件接口 (etc/rules)
 │   ├── log.sh              # 分级日志 (debug/info/warn/err)
 │   └── url.sh              # url_encode/decode + utf8_decode (\uXXXX→UTF-8)
@@ -35,9 +35,9 @@ Ayu.Core/
 │   ├── telegram/           # Telegram — 17 文件, 20 种 Update, 18 种内容类型
 │   └── discord/            # Discord — 17 文件 (仅 REST 出站)
 ├── plugin/                 # 业务插件
-│   └── sync.sh             # 跨平台消息同步 (🐧✈️👾 emoji 图标)
+│   └── sync.sh             # 跨平台消息同步 (文字 + 图片 + 文件, 双向)
 ├── etc/                    # config.sh, rules, sync.conf, config.nas.sh (gitignore)
-└── test/                   # 129 tests, 0 failures (mock_wget, 无需 API key)
+└── test/                   # 129 tests, 0 failures (mock_http, 无需 API key)
 ```
 
 ## 快速开始
@@ -71,8 +71,8 @@ QQ_PORT="616"
 QQ_TOKEN=""                      # 通过环境变量或 config.nas.sh 设置
 
 TG_TOKEN=""                      # @BotFather 获取的 Bot token
-TG_API_HOST="api.telegram.org"   # 国内被墙时用 tghook.bemly.moe (CF Worker)
-TG_API_SECRET=""                 # CF WAF 用的 X-Ayu-Token 头部
+TG_API_HOST="api.telegram.org"   # 网络受限时用 CF Worker 中转
+TG_API_SECRET=""                 # 边缘认证用的 X-Ayu-Token 头部
 
 DC_TOKEN=""
 
@@ -116,7 +116,7 @@ dc_message_create "ch1" '{"content":"hello"}'
 
 ## 跨平台消息同步
 
-一个平台的消息自动转发到其他平台。非文本内容（图片、贴纸、语音等）自动转为描述性标签。
+一个平台的消息自动转发到其他平台。图片和文件均先下载到本地再重新上传（非 URL 透传），确保内容端到端完整送达。
 
 | 方向 | 格式 | 防循环 |
 |------|------|--------|
@@ -124,7 +124,7 @@ dc_message_create "ch1" '{"content":"hello"}'
 | TG→QQ | `✈️ 用户: 消息` | emoji 前缀 + bot 发送者 ID |
 | →DC | `👾 用户: 消息` | (未实现) |
 
-**支持的内容类型**: 文字、图片、贴纸、GIF、语音、视频、文件、回复、转发、位置、联系人、骰子、投票、服务消息（入群/离群/置顶）等。详见适配器 README。
+**内容类型**: 文字、图片、文件、贴纸、GIF、语音、视频、回复、转发、位置、联系人、骰子、投票。详见适配器 README。
 
 **1. 配置映射** `etc/sync.conf`：
 
@@ -136,7 +136,7 @@ telegram/-100111=qq/group/123456            # TG 群 → QQ 群
 
 **2. 启用**: `etc/rules` 中默认已包含 `*` 规则。
 
-**限制**: Discord→QQ/TG 需要 Gateway (WebSocket)，纯 shell 无法实现。QQ↔Telegram 完全双向同步。
+**限制**: Discord→QQ/TG 需要 Gateway (WebSocket)，纯 shell 无法实现。QQ↔Telegram 图片和文件完全双向同步。
 
 ## Webhook 鉴权
 
@@ -144,20 +144,38 @@ telegram/-100111=qq/group/123456            # TG 群 → QQ 群
 
 特殊字符（`#` `<` `;` 等）通过 URL 编码处理——`url_encode`/`url_decode` 自动编解码。
 
-## Telegram 被墙绕过
+## HTTP 传输
 
-如果 `api.telegram.org` 被墙，用 Cloudflare Worker 做转发：
+Ayu.Core 使用原生 TCP + TLS 处理所有 HTTP/HTTPS 请求——`nc` 负责 TCP 连接，`ssl_client` 负责 TLS 加密。不依赖 `wget` 或 `curl`。
 
-1. 创建 CF Worker，proxy 到 `api.telegram.org`
-2. 设 `TG_API_HOST=你的worker域名`
-3. Ayu 通过 HTTPS 调 Worker（busybox wget 支持 TLS 1.0，CF 端配好最小 TLS 版本）
+**为什么不用 wget**：BusyBox wget 的 `--post-file` 通过 C 标准库读取文件，遇到 `\x00`（null 字节）即当作字符串终止符截断；`--post-data` 同理，shell 参数本身就是 null 结尾字符串。图片和文件传输必须保留所有字节值，wget 无法胜任。
+
+**工作方式**：
+
+| 协议 | 传输方式 |
+|------|----------|
+| HTTP (QQ API) | `cat request \| nc host port` |
+| HTTPS (Telegram/Discord) | `nc host 443 -e wrapper`，wrapper 内用 `ssl_client -s FD -n SNI` 做 TLS |
+
+原始 HTTP 响应解析出状态码和 body，支持 chunked transfer encoding 重组。所有内部变量使用 `_h` 前缀避免 hush 全局变量冲突。
+
+## 网络可达性
+
+如果部署环境无法直连 `api.telegram.org` 或 `discord.com`，使用 Cloudflare Worker 或其他边缘计算服务做正向代理：
+
+1. 部署 CF Worker，将请求代理到目标 API
+2. 设置 `TG_API_HOST=你的worker域名`（Discord 对应设 `DC_API_BASE`）
+3. 部署在边缘节点的 Worker 通常与主流 API 提供商有直连路由
+4. 可用 `X-Ayu-Token` 等自定义头部做边缘 WAF 鉴权
+
+Ayu.Core 通过 busybox 自带的 `ssl_client`（基于 OpenSSL）原生协商 TLS，无需外部 CA 证书包。
 
 ## 错误处理
 
 hush 无 `trap ERR`，错误在各层逐级 **prepend**（不覆盖）：
 
 ```
-qq.send_group: qq.send_group_message: http_post failed: http://x:8080/api/... (connection refused)
+qq.send_group: qq.send_group_message: http failed after 2 retries: http://x:8080/api/... (connection refused)
 ```
 
 ```sh
@@ -170,7 +188,7 @@ json_get "$resp" key || die "missing key"
 ## 运行测试
 
 ```sh
-# 全部测试 (mock_wget, 无需 API key)
+# 全部测试 (mock_http, 无需 API key)
 docker run --rm -v $(pwd):/test busybox:musl hush /test/test/run.sh
 
 # 单个分类
@@ -183,8 +201,8 @@ docker run --rm -v $(pwd):/test busybox:musl hush -c "
 
 ## 关键约束
 
-- **busybox:musl** — 无 bash, gawk, curl, jq
-- **wget** — 仅 GET/POST, TLS 1.0（CF 需设最小 TLS 为 1.0）
+- **busybox:musl** — 无 bash, gawk, curl, jq, Python
+- **nc + ssl_client** — 原生 TCP + TLS 传输（替代 wget，二进制安全）
 - **httpd CGI** — 路径写死 `/cgi-bin/`，`H:` 指令不启用 CGI
 - **hush** — 无数组、无 `trap ERR`、无局部变量
 - **awk** — 变量名 ≤3 字符，`"\n"` 是字面量
