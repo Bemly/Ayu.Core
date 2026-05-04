@@ -35,7 +35,7 @@ Ayu.Core/
 │   ├── telegram/           # Telegram — 17 files, 20 Update types, 18 content types
 │   └── discord/            # Discord — 17 files (REST only)
 ├── plugin/                 # Business logic
-│   └── sync.sh             # Cross-platform sync (text + image + file, bidirectional)
+│   └── sync.sh             # Cross-platform sync (text + image + file + sticker + reaction, bidirectional)
 ├── etc/                    # config.sh, rules, sync.conf, config.nas.sh (gitignored)
 └── test/                   # 129 tests, 0 failures (mock_http, no API keys)
 ```
@@ -124,7 +124,21 @@ Messages from one platform auto-forward to the others. Images and files are down
 | TG→QQ | `✈️ 用户: 消息` | emoji prefix + bot sender ID |
 | →DC | `👾 用户: 消息` | (not implemented) |
 
-**Content types**: text, image, file, sticker, GIF, voice, video, reply, forward, location, contact, dice, poll. See adapter READMEs for complete type tables.
+**Content type handling**:
+
+| Type | QQ→TG | TG→QQ |
+|------|-------|-------|
+| Text | `sendMessage` with 🐧 prefix | QQ text segment with ✈️ prefix |
+| Image | Download → GIF detection → `sendAnimation`/`sendPhoto` | Download → image segment (`file://` URI) |
+| File | Download → multipart `sendDocument` | Download → `upload_group_file` |
+| Sticker | — | Static WEBP → image; Video WEBM/TGS → file |
+| Reaction | — | `message_reaction` → msg-map lookup → `send_group_message_reaction` |
+| GIF/Animation | — | Download → `upload_group_file` (TG converts to MP4) |
+| Voice | `[语音]` text label | `[语音]` text label |
+| Video | `[视频]` text label | `[视频]` text label |
+| Reply | Context in text | Context in text |
+| Forward | `[转发]` prefix | `[转发]` prefix |
+| Location/Contact/Dice/Poll | Text label | Text label |
 
 **1. Configure mappings** in `etc/sync.conf`:
 
@@ -136,7 +150,7 @@ telegram/-100111=qq/group/123456            # TG group → QQ group
 
 **2. Enable** with the `*` rule in `etc/rules` (included by default).
 
-**Limitation**: Discord→QQ/TG requires Gateway (WebSocket), not feasible in pure shell. QQ↔Telegram is fully bidirectional including images and files.
+**Limitation**: Discord→QQ/TG requires Gateway (WebSocket), not feasible in pure shell. QQ↔Telegram is fully bidirectional — text, image, file, sticker, reaction.
 
 ## Webhook Auth
 

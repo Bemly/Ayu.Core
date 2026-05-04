@@ -155,6 +155,63 @@ docker run -d --name Ayu \
 - **Avoid `$()` for function calls that set `_ERROR`**: `$()` is a subshell, globals are lost. Use temp files.
 - **`_ERROR` chain**: always prepend, never overwrite. Format: `module.func: $_ERROR`
 
+## Cross-Platform Sync Features
+
+The `plugin/sync.sh` handler forwards messages between QQ and Telegram bidirectionally. Each content type is handled differently per direction.
+
+### Sticker (TG→QQ)
+
+| Sticker Type | Format | QQ Delivery | Implementation |
+|-------------|--------|-------------|----------------|
+| Static (is_video=false, is_animated=false) | WEBP/PNG | Image segment | `_sync_tg_sticker_to_qq()` — download via tg_getFile → send as image |
+| Video (is_video=true) | WEBM | File upload | Same function — download → `qq_file_upload_group` as `sticker.webm` |
+| Animated (is_animated=true) | TGS | File upload | Same function — download → `qq_file_upload_group` as `sticker.tgs` |
+
+**Why video/animated ≠ image**: QQ FlashTransfer returns "pic compress error" on non-static formats. WEBP is the only TG sticker format QQ can render as inline image.
+
+### Reaction (TG→QQ)
+
+TG `message_reaction` update → lookup msg-map file at `/test/var/state/msg-map/{chat_id}/{message_id}` → extract `group_id message_seq` → `qq_group_send_reaction` with Unicode codepoint (decimal) as type=2 code. Emoji codepoint derived via `_reaction_code()` which handles JSON-escaped `\uXXXX` (including surrogate pairs) and raw UTF-8 via `od`.
+
+### Image (bidirectional)
+
+| Direction | Method |
+|-----------|--------|
+| QQ→TG | `_sync_qq_images_to_tg()` — extract temp_url from segments → download → check GIF magic bytes → `sendAnimation` (GIF) or `sendPhoto` (static) via multipart |
+| TG→QQ | `_sync_tg_photo_to_qq()` — `tg_getFile` → download → image segment with `file:///root/img/...` URI |
+
+### File / Document (bidirectional)
+
+| Direction | Method |
+|-----------|--------|
+| QQ→TG | `_sync_qq_files_to_tg()` — `qq_file_get_download_url` → download → multipart `sendDocument` |
+| TG→QQ | `_sync_tg_document_to_qq()` — `tg_getFile` → download → `qq_file_upload_group` |
+
+### Animation / GIF (TG→QQ)
+
+`_sync_tg_animation_to_qq()` — TG converts GIF to MP4 internally → download → `qq_file_upload_group` (QQ cannot render MP4 as inline image).
+
+### Text (bidirectional)
+
+Text forwarded with sender attribution prefix (🐧 for QQ, ✈️ for TG) and loop prevention checks (prefix + bot sender ID).
+
+### Non-forwardable Types (text label only)
+
+These TG content types produce `[标签]` text but no file transfer: voice `[语音]`, video `[视频]`, video_note `[视频笔记]`, audio `[音频: title]`, location `[位置]`, contact `[联系人]`, dice `[骰子]`, poll `[投票]`, venue `[地点]`, game `[游戏]`.
+
+### Message Mapping
+
+Every forwarded message stores a mapping file: `/test/var/state/msg-map/{tg_chat_id}/{tg_message_id}` containing `{qq_group_id} {qq_message_seq}`. This enables TG→QQ reaction sync.
+
+### Sync Config
+
+`etc/sync.conf`: `source=target` per line. Format:
+```
+qq/group/123456=telegram/-100111          # QQ group → TG group
+telegram/-100111=qq/group/123456          # TG group → QQ group
+telegram/-100111=telegram/-100222/16553   # TG → TG forum topic
+```
+
 ## HTTP Transport (nc + ssl_client)
 
 **Ayu.Core does NOT use wget.** All HTTP/HTTPS goes through `lib/http.sh` which uses raw TCP + TLS:
