@@ -165,3 +165,15 @@ test_sync_multi_target
 test_sync_qq_gif_to_tg
 test_sync_qq_static_image_to_tg
 test_sync_tg_animation_to_qq
+test_reaction_code() {
+	# Surrogate pair (U+1F44D 👍)
+	_r="$(_reaction_code '\ud83d\udc4d')"
+	assert_eq "$_r" "128077" "reaction_code surrogate pair"
+	# BMP (U+2764 ❤)
+	_r="$(_reaction_code '\u2764')"
+	assert_eq "$_r" "10084" "reaction_code BMP"
+	# Surrogate pair (U+1F525 🔥)
+	_r="$(_reaction_code '\ud83d\udd25')"
+	assert_eq "$_r" "128293" "reaction_code fire emoji"
+}
+test_reaction_code

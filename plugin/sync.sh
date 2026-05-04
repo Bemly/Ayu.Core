@@ -15,6 +15,7 @@
 
 # Extract sender display name from platform-specific raw JSON
 # _reaction_code <json_escaped_emoji> -> decimal Unicode codepoint
+# NOTE: surrogate pair logic mirrors utf8_decode in lib/url.sh — same hex parsing, different output
 _reaction_code() {
 	printf '%s' "$1" | awk '
 	match($0, /\\u[Dd][89ABab][0-9A-Fa-f][0-9A-Fa-f]\\u[Dd][C-Fc-f][0-9A-Fa-f][0-9A-Fa-f]/) {
