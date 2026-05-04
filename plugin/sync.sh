@@ -620,11 +620,9 @@ _sync_tg_video_to_qq() {
 	if [ -z "$_video" ] || [ "$_video" = "NOTFOUND" ]; then return 1; fi
 	_fid="$(json_get "$_video" file_id 2>/dev/null)" || _fid=""
 	if [ -z "$_fid" ] || [ "$_fid" = "NOTFOUND" ]; then return 1; fi
-		log_debug "sync: tg-qq video fid=$_fid"
-	_fp="$(tg_getFile "$_fid" 2>/dev/null)" || _fp=""
-	if [ -z "$_fp" ] || [ "$_fp" = "NOTFOUND" ]; then
-		log_err "sync: tg-qq video getFile FAIL fid=$_fid err=$_ERROR"; return 1
-	fi
+	_fpfile="/tmp/tg-vid-fp-$$"
+	tg_getFile "$_fid" > "$_fpfile" 2>/dev/null || { log_err "sync: tg-qq video getFile FAIL fid=$_fid err=$_ERROR"; rm -f "$_fpfile"; return 1; }
+	_fp="$(cat "$_fpfile")"; rm -f "$_fpfile"
 	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
 	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then
 		log_err "sync: tg-qq video no file_path"; return 1
