@@ -579,9 +579,6 @@ _sync_tg_voice_to_qq() {
 	fi
 }
 
-# Forward TG video to QQ (download via CF Worker, upload as QQ video segment)
-_sync_tg_video_to_qq() {
-
 # Forward TG audio to QQ (download via CF Worker, upload as QQ file)
 _sync_tg_audio_to_qq() {
 	_raw="$1" _gid="$2"
@@ -615,6 +612,9 @@ _sync_tg_audio_to_qq() {
 		log_err "sync: tg-qq audio FAIL: $_ERROR"; rm -f "$_tmp"; return 1
 	fi
 }
+
+# Forward TG video to QQ (download via CF Worker, upload as QQ video segment)
+_sync_tg_video_to_qq() {
 	_raw="$1" _gid="$2"
 	_video="$(json_get "$_raw" video 2>/dev/null)" || return 1
 	if [ -z "$_video" ] || [ "$_video" = "NOTFOUND" ]; then return 1; fi
