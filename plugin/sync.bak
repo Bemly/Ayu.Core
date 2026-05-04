@@ -405,7 +405,7 @@ _sync_tg_photo_to_qq() {
 	if [ -z "$_photos" ] || [ "$_photos" = "NOTFOUND" ]; then return 1; fi
 	_fid="$(printf '%s' "$_photos" | sed -n 's/.*"file_id":"\([^"]*\)".*/\1/p' | tail -1)"
 	if [ -z "$_fid" ]; then return 1; fi
-	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || { log_err "sync: tg-qq photo getFile FAIL err=$_ERROR"; return 1; }
+	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || { log_err "sync: tg->qq photo getFile FAIL err=$_ERROR"; return 1; }
 	_fp="$(cat "/tmp/tg-fp-$$")"; rm -f "/tmp/tg-fp-$$"
 	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
 	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then
@@ -439,7 +439,7 @@ _sync_tg_sticker_to_qq() {
 	_ivd="$(json_get "$_sticker" is_video 2>/dev/null)" || _ivd=""
 	_stp="$(json_get "$_sticker" type 2>/dev/null)" || _stp=""
 	log_debug "sync: sticker fid=$_fid animated=$_ian video=$_ivd type=$_stp"
-	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || { log_err "sync: tg-qq sticker getFile FAIL err=$_ERROR"; return 1; }
+	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || { log_err "sync: tg->qq sticker getFile FAIL err=$_ERROR"; return 1; }
 	_fp="$(cat "/tmp/tg-fp-$$")"; rm -f "/tmp/tg-fp-$$"
 	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
 	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then
@@ -483,7 +483,7 @@ _sync_tg_animation_to_qq() {
 	if [ -z "$_ani" ] || [ "$_ani" = "NOTFOUND" ]; then return 1; fi
 	_fid="$(printf '%s' "$_ani" | sed -n 's/.*"file_id":"\([^"]*\)".*/\1/p' | tail -1)"
 	if [ -z "$_fid" ]; then return 1; fi
-	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || { log_err "sync: tg-qq animation getFile FAIL err=$_ERROR"; return 1; }
+	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || { log_err "sync: tg->qq animation getFile FAIL err=$_ERROR"; return 1; }
 	_fp="$(cat "/tmp/tg-fp-$$")"; rm -f "/tmp/tg-fp-$$"
 	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
 	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then
@@ -514,8 +514,9 @@ _sync_tg_document_to_qq() {
 	if [ -z "$_fid" ] || [ "$_fid" = "NOTFOUND" ]; then return 1; fi
 	_fn="$(json_get "$_doc" file_name 2>/dev/null)" || _fn="file"
 	_fn="$(utf8_decode "$_fn")"
-	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || { log_err "sync: tg-qq file getFile FAIL err=$_ERROR"; return 1; }
+	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || { log_err "sync: tg->qq file getFile FAIL err=$_ERROR"; return 1; }
 	_fp="$(cat "/tmp/tg-fp-$$")"; rm -f "/tmp/tg-fp-$$"
+	fi
 	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
 	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then
 		log_err "sync: tg→qq file no file_path"; return 1
@@ -549,6 +550,7 @@ _sync_tg_voice_to_qq() {
 	if [ -z "$_fid" ] || [ "$_fid" = "NOTFOUND" ]; then return 1; fi
 	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || { log_err "sync: tg-qq voice getFile FAIL err=$_ERROR"; return 1; }
 	_fp="$(cat "/tmp/tg-fp-$$")"; rm -f "/tmp/tg-fp-$$"
+	fi
 	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
 	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then
 		log_err "sync: tg-qq voice no file_path"; return 1
@@ -580,6 +582,7 @@ _sync_tg_audio_to_qq() {
 	[ "$_title" = "NOTFOUND" ] && _title=""
 	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || { log_err "sync: tg-qq audio getFile FAIL err=$_ERROR"; return 1; }
 	_fp="$(cat "/tmp/tg-fp-$$")"; rm -f "/tmp/tg-fp-$$"
+	fi
 	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
 	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then
 		log_err "sync: tg-qq audio no file_path"; return 1
@@ -747,7 +750,7 @@ sync_handler() {
 			else
 				_body="$(json_obj "chat_id" "$_tcid" "text" "$_text")"
 			fi
-				_tg_api "sendMessage" "$_body" "sync.tg" > "/tmp/sync-tg-resp-$$" || { log_err "sync: $_pf\xe2\x86\x92tg FAIL: $_ERROR"; _resp=""; }
+				_tg_api "sendMessage" "$_body" "sync.tg" > "/tmp/sync-tg-resp-$$" || { log_err "sync: $_pf→tg FAIL: $_ERROR"; _resp=""; }
 				_resp="$(cat "/tmp/sync-tg-resp-$$" 2>/dev/null)"; rm -f "/tmp/sync-tg-resp-$$"
 				if [ -n "$_resp" ] && [ "$_resp" != "NOTFOUND" ]; then
 					_tmid="$(json_get "$_resp" message_id 2>/dev/null)" || _tmid=""
@@ -774,7 +777,7 @@ sync_handler() {
 			case "$_tid" in
 			group/*)
 				_gid="${_tid#group/}"
-				qq_message_send_group "$_gid" "$_segs" > "/tmp/sync-qq-resp-$$" 2>/dev/null || { log_err "sync: $_pf\xe2\x86\x92qq FAIL: $_ERROR"; _resp=""; }
+				qq_message_send_group "$_gid" "$_segs" > "/tmp/sync-qq-resp-$$" 2>/dev/null || { log_err "sync: $_pf→qq FAIL: $_ERROR"; _resp=""; }
 				_resp="$(cat "/tmp/sync-qq-resp-$$" 2>/dev/null)"; rm -f "/tmp/sync-qq-resp-$$"
 				if [ -n "$_resp" ] && [ "$_resp" != "NOTFOUND" ]; then
 					_rseq="$(json_get "$_resp" message_seq 2>/dev/null)" || _rseq=""
