@@ -35,9 +35,9 @@ Ayu.Core/
 │   ├── telegram/           # Telegram — 17 文件, 20 种 Update, 18 种内容类型
 │   └── discord/            # Discord — 17 文件 (仅 REST 出站)
 ├── plugin/                 # 业务插件
-│   └── sync.sh             # 跨平台消息同步 (文字 + 图片 + 文件 + 贴纸 + 表情反应, 双向)
+│   └── sync/               # 跨平台消息同步: 文字/图片/文件/语音/视频/贴纸/表情反应/撤回
 ├── etc/                    # config.sh, rules, sync.conf, config.nas.sh (gitignore)
-└── test/                   # 129 tests, 0 failures (mock_http, 无需 API key)
+└── test/                   # 141 tests, 0 failures (mock_http, 无需 API key)
 ```
 
 ## 快速开始
@@ -200,7 +200,7 @@ docker run --rm -v $(pwd):/test busybox:musl hush -c "
 "
 ```
 
-**129 tests, 0 failures** — QQ(14) + Telegram(6) + Discord(26) + HTTP(4) + Dispatch(2) + Sync(12) + URL(26) + Log(4) + Auth(5) + Webhook(16)
+**141 tests, 0 failures** — QQ(14) + Telegram(6) + Discord(26) + HTTP(4) + Dispatch(2) + Sync(17) + URL(26) + Log(4) + Auth(5) + Webhook(16)
 
 ## 关键约束
 

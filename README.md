@@ -35,9 +35,9 @@ Ayu.Core/
 │   ├── telegram/           # Telegram — 17 files, 20 Update types, 18 content types
 │   └── discord/            # Discord — 17 files (REST only)
 ├── plugin/                 # Business logic
-│   └── sync.sh             # Cross-platform sync (text + image + file + sticker + reaction, bidirectional)
+│   └── sync/               # Cross-platform sync: text, image, file, voice, video, sticker, reaction, recall
 ├── etc/                    # config.sh, rules, sync.conf, config.nas.sh (gitignored)
-└── test/                   # 129 tests, 0 failures (mock_http, no API keys)
+└── test/                   # 141 tests, 0 failures (mock_http, no API keys)
 ```
 
 ## Quick Start
@@ -200,7 +200,7 @@ docker run --rm -v $(pwd):/test busybox:musl hush -c "
 "
 ```
 
-**129 tests, 0 failures** — QQ(14) + Telegram(6) + Discord(26) + HTTP(4) + Dispatch(2) + Sync(12) + URL(26) + Log(4) + Auth(5) + Webhook(16)
+**141 tests, 0 failures** — QQ(14) + Telegram(6) + Discord(26) + HTTP(4) + Dispatch(2) + Sync(17) + URL(26) + Log(4) + Auth(5) + Webhook(16)
 
 ## Constraints
 
