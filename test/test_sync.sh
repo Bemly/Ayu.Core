@@ -177,3 +177,70 @@ test_reaction_code() {
 	assert_eq "$_r" "128293" "reaction_code fire emoji"
 }
 test_reaction_code
+
+test_sync_qq_record_to_tg() {
+	_SYNC_CONF="/tmp/sync-test-$$.conf"
+	printf 'qq/group/100=telegram/-200\n' > "$_SYNC_CONF"
+	mock_set '{"ok":true,"result":{"message_id":99}}'
+
+	_raw='{"peer_id":100,"sender_id":111,"message_seq":1,"message_scene":"group","group_id":100,"group_member":{"user_id":111,"nickname":"Alice"},"segments":[{"type":"record","data":{"resource_id":"r1","temp_url":"http://x.com/voice.amr","duration":5}}]}'
+	sync_handler "qq" "message" "111" "[语音]" "$_raw" 2>/dev/null
+	assert_ok "sync qq->tg voice record"
+	rm -f "$_SYNC_CONF"
+}
+
+test_sync_qq_video_to_tg() {
+	_SYNC_CONF="/tmp/sync-test-$$.conf"
+	printf 'qq/group/100=telegram/-200\n' > "$_SYNC_CONF"
+	mock_set '{"ok":true,"result":{"message_id":99}}'
+
+	_raw='{"peer_id":100,"sender_id":111,"message_seq":1,"message_scene":"group","group_id":100,"group_member":{"user_id":111,"nickname":"Alice"},"segments":[{"type":"video","data":{"resource_id":"v1","temp_url":"http://x.com/video.mp4","width":640,"height":480,"duration":10}}]}'
+	sync_handler "qq" "message" "111" "[视频]" "$_raw" 2>/dev/null
+	assert_ok "sync qq->tg video"
+	rm -f "$_SYNC_CONF"
+}
+
+test_sync_tg_voice_to_qq() {
+	_SYNC_CONF="/tmp/sync-test-$$.conf"
+	printf 'telegram/-200=qq/group/100\n' > "$_SYNC_CONF"
+	mock_set '{"ok":true,"result":{"file_path":"voice/file_0.ogg"}}'
+
+	_raw='{"message_id":1,"from":{"id":222,"is_bot":false,"first_name":"Bob"},"chat":{"id":-200,"type":"group","title":"Test"},"voice":{"file_id":"v1","file_unique_id":"uq1","duration":3}}'
+	sync_handler "telegram" "message" "" "[语音]" "$_raw" 2>/dev/null
+	assert_ok "sync tg->qq voice"
+	rm -f "$_SYNC_CONF"
+}
+
+test_sync_tg_video_to_qq() {
+	_SYNC_CONF="/tmp/sync-test-$$.conf"
+	printf 'telegram/-200=qq/group/100\n' > "$_SYNC_CONF"
+	mock_set '{"ok":true,"result":{"file_path":"videos/file_0.mp4"}}'
+
+	_raw='{"message_id":1,"from":{"id":222,"is_bot":false,"first_name":"Bob"},"chat":{"id":-200,"type":"group","title":"Test"},"video":{"file_id":"v1","file_unique_id":"uq1","width":640,"height":480,"duration":10},"caption":"vid test"}'
+	sync_handler "telegram" "message" "" "vid test" "$_raw" 2>/dev/null
+	assert_ok "sync tg->qq video"
+	rm -f "$_SYNC_CONF"
+}
+
+test_sync_qq_recall_to_tg() {
+	_SYNC_CONF="/tmp/sync-test-$$.conf"
+	printf 'qq/group/100=telegram/-200\n' > "$_SYNC_CONF"
+	mock_set '{"ok":true,"result":{"message_id":99}}'
+
+	# First send a message to create msg-map (both forward and reverse)
+	_raw_send='{"peer_id":100,"sender_id":111,"message_seq":1,"message_scene":"group","group_id":100,"group_member":{"user_id":111,"nickname":"Alice"},"segments":[{"type":"text","data":{"text":"hello"}}]}'
+	sync_handler "qq" "message" "111" "hello" "$_raw_send" 2>/dev/null
+
+	# Now recall it
+	mock_set '{"ok":true,"result":true}'
+	_raw_recall='{"message_scene":"group","peer_id":100,"message_seq":1,"sender_id":111,"operator_id":111}'
+	sync_handler "qq" "message_recall" "111" "[撤回消息]" "$_raw_recall" 2>/dev/null
+	assert_ok "sync qq recall -> tg deleteMessage"
+	rm -f "$_SYNC_CONF"
+}
+
+test_sync_qq_voice_to_tg
+test_sync_qq_video_to_tg
+test_sync_tg_voice_to_qq
+test_sync_tg_video_to_qq
+test_sync_qq_recall_to_tg
