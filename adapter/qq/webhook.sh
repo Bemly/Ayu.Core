@@ -16,7 +16,9 @@ qq_webhook() {
         message_receive)
             _msg="$(json_get "$_raw" data)" || { _ERROR="webhook.qq: no event data"; return 1; }
             _mid="$(json_get "$_msg" sender_id)" || _mid=""
-            _txt="$(qq_extract_text "$_msg")"
+            _scene="$(json_get "$_msg" message_scene 2>/dev/null)" || _scene=""
+            _pid="$(json_get "$_msg" peer_id 2>/dev/null)" || _pid=""
+            _txt="$(qq_extract_text "$_msg" "$_scene" "$_pid")"
             log_info "qq_webhook: message from $_mid: $_txt"
             dispatch "qq" "message" "$_mid" "$_txt" "$_msg"
             ;;
@@ -65,7 +67,7 @@ qq_webhook() {
 # Order: text → face → image → record → video → file → mention →
 #        mention_all → reply → forward → market_face → light_app → xml
 qq_extract_text() {
-    _msg="$1"
+    _msg="$1" _scene="${2:-}" _peer="${3:-}"
     _segs="$(json_get "$_msg" segments)" || { echo ""; return; }
 
     _out=""
@@ -115,10 +117,22 @@ qq_extract_text() {
         _out="$_out$_sp@所有人"; _sp=" "
     fi
 
-    # reply
-    if printf '%s' "$_segs" | grep -q '"type":"reply"'; then
-        _out="$_out$_sp[回复]"; _sp=" "
-    fi
+	# reply — resolve quoted message content via get_message API
+	if printf '%s' "$_segs" | grep -q '"type":"reply"'; then
+		_rseq="$(printf '%s' "$_segs" | sed -n 's/.*"message_seq":\([0-9]*\).*/\1/p')"
+		_rtext=""
+		if [ -n "$_rseq" ] && [ -n "$_scene" ] && [ -n "$_peer" ]; then
+			_rmsg="$(qq_message_get "$_scene" "$_peer" "$_rseq" 2>/dev/null)" || _rmsg=""
+			if [ -n "$_rmsg" ] && [ "$_rmsg" != "NOTFOUND" ]; then
+				_rtext="$(qq_extract_text "$_rmsg")"
+			fi
+		fi
+		if [ -n "$_rtext" ]; then
+			_out="$_out$_sp[回复: $_rtext]"; _sp=" "
+		else
+			_out="$_out$_sp[回复]"; _sp=" "
+		fi
+	fi
 
     # forward
     if printf '%s' "$_segs" | grep -q '"type":"forward"'; then
