@@ -623,7 +623,7 @@ _sync_tg_video_to_qq() {
 		log_debug "sync: tg-qq video fid=$_fid"
 	_fp="$(tg_getFile "$_fid" 2>/dev/null)" || _fp=""
 	if [ -z "$_fp" ] || [ "$_fp" = "NOTFOUND" ]; then
-		log_err "sync: tg-qq video getFile FAIL fid=$_fid"; return 1
+		log_err "sync: tg-qq video getFile FAIL fid=$_fid err=$_ERROR"; return 1
 	fi
 	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
 	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then
