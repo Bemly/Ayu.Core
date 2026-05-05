@@ -213,7 +213,8 @@ _sync_dc_multipart() {
 	_url="${DC_API_BASE}/channels/${_cid}/messages"
 	if http_post_file "$_url" "$_tmp" \
 		"Content-Type: multipart/form-data; boundary=$_bound" \
-		"Authorization: Bot ${DC_TOKEN}" >/dev/null; then
+		"Authorization: Bot ${DC_TOKEN}" \
+			"${_DC_AYU_AUTH:-}" >/dev/null; then
 		rm -f "$_tmp"; return 0
 	else
 		rm -f "$_tmp"; return 1
