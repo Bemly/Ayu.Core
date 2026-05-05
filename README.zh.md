@@ -22,9 +22,8 @@
 
 Ayu.Core/
 ├── cgi-bin/                # CGI 脚本 (busybox httpd 写死 /cgi-bin/)
-│   ├── start.sh            # 启动 httpd
-│   ├── router.sh           # CGI 入口 (平台路由 + token 鉴权)
-│   └── dc-sync.sh          # 每日 Discord 消息同步 (cron → CGI)
+│   ├── start.sh            # 启动 httpd + crond
+│   └── router.sh           # CGI 入口 (平台路由 + token 鉴权)
 ├── lib/
 │   ├── core.sh             # _ERROR 链, die(), hush-json + hush-url 引导
 │   ├── http.sh             # HTTP/HTTPS via nc + ssl_client (GET/POST, 重试, chunked 解码)
@@ -36,9 +35,9 @@ Ayu.Core/
 │   ├── telegram/           # Telegram — 17 文件, 20 种 Update, 18 种内容类型
 │   └── discord/            # Discord — 18 文件, 135 个函数 (REST + webhook)
 ├── plugin/                 # 业务插件
-│   └── sync/               # 跨平台消息同步: 文字/图片/文件/语音/视频/贴纸/表情反应/撤回
+│   └── sync/               # 跨平台同步 + dc-sync.sh (crond 定时入口)
 ├── webui/                  # Dashboard (Luolita SFC 框架)
-├── etc/                    # config.sh, rules, sync.conf, config.nas.sh (gitignore)
+├── etc/                    # config, rules, crontab, sync.conf, README
 └── test/                   # 141 tests, 0 failures (mock_http, 无需 API key)
 ```
 
@@ -132,14 +131,11 @@ dc_message_create "ch1" '{"content":"hello"}'
 
 **为什么 DC 出站是批量**：Discord 消息事件需要 Gateway (WebSocket)，纯 shell 无法实现。改用 REST API（`GET /channels/{id}/messages`）每日拉取，按当天日期过滤后转发。
 
-**触发 DC 同步**：
-```sh
-# 手动触发（一次性）
-wget -q 'http://127.0.0.1:6160/cgi-bin/dc-sync.sh?token=xxx'
-
-# NAS crontab（每天 UTC 0 点触发）
-0 0 * * * wget -q 'http://127.0.0.1:6160/cgi-bin/dc-sync.sh?token=xxx'
+**触发 DC 同步**：容器内 `crond` 每天 UTC 0 点通过 `etc/crontab` 执行 `dc_batch_run()`：
 ```
+0 0 * * *|../plugin/sync/dc-sync.sh|dc_batch_run  # DC 每日消息同步
+```
+其他定时任务在 `etc/crontab` 中添加即可。框架插件 API 详见 `etc/README.md`。
 
 **sync.conf 格式**：
 ```

@@ -1,0 +1,14 @@
+# etc/crontab — cron job registry
+# Format: <cron expr>|<script>|<func>
+# Script path relative to adapter/ (same convention as etc/rules)
+# Lines starting with # are comments, blank lines skipped
+#
+# ┌─ min (0-59)
+# │ ┌─ hour (0-23)
+# │ │ ┌─ day (1-31)
+# │ │ │ ┌─ month (1-12)
+# │ │ │ │ ┌─ day of week (0-6, 0=Sun)
+# │ │ │ │ │
+# │ │ │ │ │    script path        function name
+# │ │ │ │ │    ──────────────      ────────────
+0 0 * * *|../plugin/sync/dc-sync.sh|dc_batch_run  # DC daily message sync

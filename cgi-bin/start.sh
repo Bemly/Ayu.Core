@@ -19,4 +19,21 @@ log_info "Ayu.Core starting on ${BOT_HOST}:${BOT_PORT}"
 log_info "QQ API: ${QQ_API_BASE}"
 log_info "log dir: ${_LOG_DIR}"
 
+# --- launch crond (scheduled tasks via etc/crontab) ---
+_cron_tab="$_HB/etc/crontab"
+_cron_file="/var/spool/cron/crontabs/root"
+if [ -f "$_cron_tab" ]; then
+	mkdir -p "$(dirname "$_cron_file")"
+	> "$_cron_file"
+	while IFS='|' read -r _time _sc _fn _; do
+		case "$_time" in \#*|"") continue ;; esac
+		printf '%s sh %s/adapter/%s %s\n' \
+			"$_time" "$_HB" "$_sc" "$_fn" >> "$_cron_file"
+	done < "$_cron_tab"
+	crond -l 5 &
+	log_info "crond: started with $(wc -l < "$_cron_file") job(s)"
+else
+	log_info "crond: no $_cron_tab, skipped"
+fi
+
 httpd -f -h "$_HB" -p "$BOT_PORT" -c etc/httpd.conf -vv

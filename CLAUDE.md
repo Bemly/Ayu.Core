@@ -238,7 +238,7 @@ telegram/-100111=telegram/-100222/16553   # TG → TG forum topic
 
 **QQ/TG → DC (real-time)**: `handler.sh` discord target case → `dc_message_create` for text, plus media forwarders in `from_qq.sh` (`_sync_qq_images_to_dc`, `_sync_qq_files_to_dc`, `_sync_qq_record_to_dc`, `_sync_qq_video_to_dc`) and `from_tg.sh` (`_sync_tg_photo_to_dc`, `_sync_tg_document_to_dc`, `_sync_tg_voice_to_dc`, `_sync_tg_video_to_dc`, `_sync_tg_sticker_to_dc`, `_sync_tg_animation_to_dc`). All media uploaded via `_sync_dc_multipart()` in `common.sh` (multipart/form-data with `payload_json` + `files[0]` parts).
 
-**DC → QQ/TG (daily batch)**: `cgi-bin/dc-sync.sh` triggered by cron → reads `etc/sync.conf` for `discord/` sources → `dc_message_list` fetches recent messages → filters by today's date → calls `sync_dc_message()` in `from_dc.sh` which forwards text to QQ/TG targets. Skips bot's own messages via `DC_BOT_ID`.
+**DC → QQ/TG (daily batch)**: `crond` runs `dc_batch_run()` in `plugin/sync/dc-sync.sh` daily via `etc/crontab` → reads `etc/sync.conf` for `discord/` sources → `dc_message_list` fetches recent messages → filters by today's date → calls `sync_dc_message()` in `from_dc.sh` which forwards text to QQ/TG targets. Skips bot's own messages via `DC_BOT_ID`.
 
 **DC webhook**: `router.sh` now has `discord)` case → `adapter/discord/webhook.sh` → `dc_webhook_handler()` handles PING verification (type=1). Message events require Gateway (WebSocket), unsupported.
 

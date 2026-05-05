@@ -22,9 +22,8 @@ Request flow:
 
 Ayu.Core/
 ├── cgi-bin/                # CGI scripts (busybox httpd hardcodes /cgi-bin/)
-│   ├── start.sh            # Launch httpd
-│   ├── router.sh           # CGI entry (platform routing + token auth)
-│   └── dc-sync.sh          # Daily Discord message sync (cron → CGI)
+│   ├── start.sh            # Launch httpd + crond
+│   └── router.sh           # CGI entry (platform routing + token auth)
 ├── lib/
 │   ├── core.sh             # _ERROR chain, die(), hush-json + hush-url bootstrap
 │   ├── http.sh             # HTTP/HTTPS via nc + ssl_client (GET/POST, retry, chunked decode)
@@ -36,9 +35,9 @@ Ayu.Core/
 │   ├── telegram/           # Telegram — 17 files, 20 Update types, 18 content types
 │   └── discord/            # Discord — 18 files, 135 functions (REST + webhook)
 ├── plugin/                 # Business logic
-│   └── sync/               # Cross-platform sync: text, image, file, voice, video, sticker, reaction, recall
+│   └── sync/               # Cross-platform sync + dc-sync.sh (crond entry)
 ├── webui/                  # Dashboard (Luolita SFC framework)
-├── etc/                    # config.sh, rules, sync.conf, config.nas.sh (gitignored)
+├── etc/                    # config, rules, crontab, sync.conf, README
 └── test/                   # 141 tests, 0 failures (mock_http, no API keys)
 ```
 
@@ -132,14 +131,11 @@ See [plugin/sync/README.md](plugin/sync/README.md) for full documentation.
 
 **Why DC inbound is batch-only**: Discord message events require Gateway (WebSocket), which is not feasible in pure shell. Instead, `cgi-bin/dc-sync.sh` fetches messages via REST API (`GET /channels/{id}/messages`), filters by today's date, and forwards to configured targets.
 
-**Triggering DC sync**:
-```sh
-# Manual trigger (one-off)
-wget -q 'http://127.0.0.1:6160/cgi-bin/dc-sync.sh?token=xxx'
-
-# NAS crontab (daily at midnight UTC)
-0 0 * * * wget -q 'http://127.0.0.1:6160/cgi-bin/dc-sync.sh?token=xxx'
+**Triggering DC sync**: container's built-in `crond` runs `dc_batch_run()` daily at UTC midnight via `etc/crontab`:
 ```
+0 0 * * *|../plugin/sync/dc-sync.sh|dc_batch_run  # DC daily message sync
+```
+Add entries to `etc/crontab` to schedule other tasks. See `etc/README.md` for the framework plugin API.
 
 **sync.conf format:**
 ```
