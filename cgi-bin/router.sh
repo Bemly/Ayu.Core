@@ -72,6 +72,16 @@ case "$_platform" in
             exit 0
         }
         ;;
+    discord)
+        . "$_HB/adapter/discord/webhook.sh"
+        dc_webhook_handler "$_body" || {
+            _err="$_ERROR"
+            log_err "router: $_err"
+            printf 'Content-Type: application/json\r\n\r\n'
+            printf '{"status":"error","message":"%s"}' "$_err"
+            exit 0
+        }
+        ;;
     *)
         printf 'Content-Type: text/plain\r\n\r\n'
         printf 'unknown platform: %s' "$_platform"
