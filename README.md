@@ -134,8 +134,8 @@ Ayu.Core uses raw TCP + TLS for all HTTP/HTTPS requests — `nc` for TCP connect
 
 | Protocol | Transport |
 |----------|-----------|
-| HTTP (QQ API) | `cat request | nc host port` |
-| HTTPS (Telegram/Discord) | `nc host 443 -e wrapper` where wrapper pipes request through `ssl_client -s FD -n SNI` |
+| HTTP (QQ API) | `cat request \| nc host port` |
+| HTTPS (Telegram/Discord) | `nc host 443 -e wrapper` where wrapper pipes request through `ssl_client -s FD -n SNI` (via pipe, not shell pipe) |
 
 The raw HTTP response is parsed to extract status code and body, with chunked transfer encoding reassembly. All internal variables use `_h` prefix to avoid hush global variable collisions.
 
