@@ -32,27 +32,29 @@ _dc_get() {
 _dc_api() {
     _m="$1" _p="$2" _body="$3"
     _out="/tmp/dc-out.$$"
-    http_post "${DC_API_BASE}${_p}" "$_body" \
+    printf '%s' "$_body" > "$_out"
+    _http_raw "$_m" "${DC_API_BASE}${_p}" "$_out" \
         "$_CT_JSON" \
         "$(_dc_auth)" \
-        "${_DC_AYU_AUTH:-}" >"$_out" || {
+        "${_DC_AYU_AUTH:-}" >"/tmp/dc-api-resp.$$" || {
         _ERROR="dc.$_m $_p: $_ERROR"
-        rm -f "$_out"
+        rm -f "$_out" "/tmp/dc-api-resp.$$"
         return 1
     }
-    cat "$_out"
-    rm -f "$_out"
+    cat "/tmp/dc-api-resp.$$"
+    rm -f "$_out" "/tmp/dc-api-resp.$$"
 }
 
-# _dc_void <method> <path> — fire-and-forget (no body needed, or empty JSON)
+# _dc_void <method> <path> [body] — fire-and-forget
 _dc_void() {
     _m="$1" _p="$2"
     _body="${3:-{}}"
     _out="/tmp/dc-out.$$"
-    http_post "${DC_API_BASE}${_p}" "$_body" \
+    printf '%s' "$_body" > "$_out"
+    _http_raw "$_m" "${DC_API_BASE}${_p}" "$_out" \
         "$_CT_JSON" \
         "$(_dc_auth)" \
-        "${_DC_AYU_AUTH:-}" >"$_out" || {
+        "${_DC_AYU_AUTH:-}" >/dev/null || {
         _ERROR="dc.$_m $_p: $_ERROR"
         rm -f "$_out"
         return 1

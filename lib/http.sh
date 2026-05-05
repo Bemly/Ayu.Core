@@ -199,3 +199,30 @@ http_post_file() {
 	_hurl="$1" _hfile="$2"; shift 2
 	_http_raw POST "$_hurl" "$_hfile" "$@"
 }
+
+# http_delete <url> [body] [header...]
+http_delete() {
+	_hurl="$1" _hdata="${2:-{}}"; shift 2
+	_htmp="/tmp/ayu-body.$$"
+	printf '%s' "$_hdata" > "$_htmp"
+	_http_raw DELETE "$_hurl" "$_htmp" "$@"
+	_hrc=$?; rm -f "$_htmp"; return $_hrc
+}
+
+# http_patch <url> <body> [header...]
+http_patch() {
+	_hurl="$1" _hdata="$2"; shift 2
+	_htmp="/tmp/ayu-body.$$"
+	printf '%s' "$_hdata" > "$_htmp"
+	_http_raw PATCH "$_hurl" "$_htmp" "$@"
+	_hrc=$?; rm -f "$_htmp"; return $_hrc
+}
+
+# http_put <url> <body> [header...]
+http_put() {
+	_hurl="$1" _hdata="$2"; shift 2
+	_htmp="/tmp/ayu-body.$$"
+	printf '%s' "$_hdata" > "$_htmp"
+	_http_raw PUT "$_hurl" "$_htmp" "$@"
+	_hrc=$?; rm -f "$_htmp"; return $_hrc
+}
