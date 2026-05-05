@@ -220,4 +220,48 @@ _sync_dc_multipart() {
 	fi
 }
 
+# ---- shared download/extract helpers ----
+
+# _tg_download_file <file_id> <prefix> <tag>
+# Downloads TG file: getFile → file_path → http_get_file → temp file.
+# Sets globals: _tg_df_path (temp file), _tg_df_furi (file:// URI), _tg_df_name.
+# Errors prepended to _ERROR. Returns 0 on success.
+_tg_download_file() {
+	_fid="$1" _prefix="$2" _tag="$3"
+	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || {
+		_ERROR="tg.getFile(${_tag}): $_ERROR"; return 1
+	}
+	_fp="$(cat "/tmp/tg-fp-$$")"; rm -f "/tmp/tg-fp-$$"
+	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
+	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then
+		_ERROR="tg.download(${_tag}): no file_path fid=$_fid"; return 1
+	fi
+	_fname="${_path##*/}"
+	_ts=$(date +%s)
+	_ext=".${_fname##*.}"; [ "$_ext" = ".$_fname" ] && _ext=""
+	_tg_df_path="/tmp/img/sync-${_prefix}-tg-$$-$_ts$_ext"
+	_tg_df_furi="file:///root/img/sync-${_prefix}-tg-$$-$_ts$_ext"
+	_tg_df_name="$_fname"
+	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
+	http_get_file "$_url" "$_tg_df_path" "$_TG_AUTH" || {
+		_ERROR="tg.download(${_tag}): $_ERROR"; rm -f "$_tg_df_path"; return 1
+	}
+	log_debug "sync: tg download OK tag=$_tag sz=$(wc -c < "$_tg_df_path" 2>/dev/null)"
+	return 0
+}
+
+# _qq_extract_segments <raw_json> <type>
+# Extracts QQ segments of given type (image/file/record/video). One per line.
+# Returns 1 if none found.
+_qq_extract_segments() {
+	_raw="$1" _type="$2"
+	_segs="$(json_get "$_raw" segments 2>/dev/null)" || _segs=""
+	if [ -z "$_segs" ] || [ "$_segs" = "NOTFOUND" ]; then return 1; fi
+	_result="$(printf '%s' "$_segs" | sed 's/},{"type"/\
+{"type"/g' | grep "\"type\":\"$_type\"")"
+	[ -z "$_result" ] && return 1
+	printf '%s\n' "$_result"
+	return 0
+}
+
 # Forward QQ images to TG (GIF→sendAnimation, static→sendPhoto)

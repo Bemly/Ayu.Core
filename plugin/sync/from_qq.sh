@@ -1,14 +1,6 @@
 _sync_qq_images_to_tg() {
 	_raw="$1" _tcid="$2" _tthr="$3" _sender="$4"
-	_segs="$(json_get "$_raw" segments 2>/dev/null)" || _segs=""
-	if [ -z "$_segs" ] || [ "$_segs" = "NOTFOUND" ]; then return 1; fi
-	# Split segments and filter image type (check sub_type for GIF)
-	_imgs="$(printf '%s' "$_segs" | sed 's/},{"type"/\
-{"type"/g' | grep '"type":"image"')"
-	if [ -z "$_imgs" ]; then
-		log_info "sync: img segs=$(printf '%.200s' "$_segs")"
-		return 1
-	fi
+	_imgs="$(_qq_extract_segments "$_raw" "image")" || return 1
 	_sent=0
 	IFS='
 '
@@ -83,11 +75,7 @@ _sync_qq_images_to_tg() {
 # Forward QQ files to TG (download, then multipart upload via sendDocument)
 _sync_qq_files_to_tg() {
 	_raw="$1" _tcid="$2" _tthr="$3" _sender="$4" _gid="$5"
-	_segs="$(json_get "$_raw" segments 2>/dev/null)" || _segs=""
-	if [ -z "$_segs" ] || [ "$_segs" = "NOTFOUND" ]; then return 1; fi
-	_files="$(printf '%s' "$_segs" | sed 's/},{"type"/\
-{"type"/g' | grep '"type":"file"')"
-	if [ -z "$_files" ]; then return 1; fi
+	_files="$(_qq_extract_segments "$_raw" "file")" || return 1
 	_sent=0
 	IFS='
 '
@@ -146,11 +134,7 @@ _sync_qq_files_to_tg() {
 # Forward QQ voice to TG (download record, multipart sendVoice)
 _sync_qq_record_to_tg() {
 	_raw="$1" _tcid="$2" _tthr="$3" _sender="$4"
-	_segs="$(json_get "$_raw" segments 2>/dev/null)" || _segs=""
-	if [ -z "$_segs" ] || [ "$_segs" = "NOTFOUND" ]; then return 1; fi
-	_recs="$(printf '%s' "$_segs" | sed 's/},{"type"/\
-{"type"/g' | grep '"type":"record"')"
-	if [ -z "$_recs" ]; then return 1; fi
+	_recs="$(_qq_extract_segments "$_raw" "record")" || return 1
 	_sent=0
 	IFS='
 '
@@ -197,11 +181,7 @@ _sync_qq_record_to_tg() {
 # Forward QQ video to TG (download, multipart sendVideo)
 _sync_qq_video_to_tg() {
 	_raw="$1" _tcid="$2" _tthr="$3" _sender="$4"
-	_segs="$(json_get "$_raw" segments 2>/dev/null)" || _segs=""
-	if [ -z "$_segs" ] || [ "$_segs" = "NOTFOUND" ]; then return 1; fi
-	_vids="$(printf '%s' "$_segs" | sed 's/},{"type"/\
-{"type"/g' | grep '"type":"video"')"
-	if [ -z "$_vids" ]; then return 1; fi
+	_vids="$(_qq_extract_segments "$_raw" "video")" || return 1
 	_sent=0
 	IFS='
 '
@@ -245,11 +225,7 @@ _sync_qq_video_to_tg() {
 # Forward QQ images to DC (download, multipart POST)
 _sync_qq_images_to_dc() {
 	_raw="$1" _cid="$2" _sender="$3"
-	_segs="$(json_get "$_raw" segments 2>/dev/null)" || _segs=""
-	if [ -z "$_segs" ] || [ "$_segs" = "NOTFOUND" ]; then return 1; fi
-	_imgs="$(printf '%s' "$_segs" | sed 's/},{"type"/\
-{"type"/g' | grep '"type":"image"')"
-	if [ -z "$_imgs" ]; then return 1; fi
+	_imgs="$(_qq_extract_segments "$_raw" "image")" || return 1
 	_sent=0
 	IFS='
 '
@@ -280,11 +256,7 @@ _sync_qq_images_to_dc() {
 # Forward QQ files to DC (download, multipart POST)
 _sync_qq_files_to_dc() {
 	_raw="$1" _cid="$2" _sender="$3" _gid="$4"
-	_segs="$(json_get "$_raw" segments 2>/dev/null)" || _segs=""
-	if [ -z "$_segs" ] || [ "$_segs" = "NOTFOUND" ]; then return 1; fi
-	_files="$(printf '%s' "$_segs" | sed 's/},{"type"/\
-{"type"/g' | grep '"type":"file"')"
-	if [ -z "$_files" ]; then return 1; fi
+	_files="$(_qq_extract_segments "$_raw" "file")" || return 1
 	_sent=0
 	IFS='
 '
@@ -317,11 +289,7 @@ _sync_qq_files_to_dc() {
 # Forward QQ voice to DC (download, multipart POST)
 _sync_qq_record_to_dc() {
 	_raw="$1" _cid="$2" _sender="$3"
-	_segs="$(json_get "$_raw" segments 2>/dev/null)" || _segs=""
-	if [ -z "$_segs" ] || [ "$_segs" = "NOTFOUND" ]; then return 1; fi
-	_recs="$(printf '%s' "$_segs" | sed 's/},{"type"/\
-{"type"/g' | grep '"type":"record"')"
-	if [ -z "$_recs" ]; then return 1; fi
+	_recs="$(_qq_extract_segments "$_raw" "record")" || return 1
 	_sent=0
 	IFS='
 '
@@ -346,11 +314,7 @@ _sync_qq_record_to_dc() {
 # Forward QQ video to DC (download, multipart POST)
 _sync_qq_video_to_dc() {
 	_raw="$1" _cid="$2" _sender="$3"
-	_segs="$(json_get "$_raw" segments 2>/dev/null)" || _segs=""
-	if [ -z "$_segs" ] || [ "$_segs" = "NOTFOUND" ]; then return 1; fi
-	_vids="$(printf '%s' "$_segs" | sed 's/},{"type"/\
-{"type"/g' | grep '"type":"video"')"
-	if [ -z "$_vids" ]; then return 1; fi
+	_vids="$(_qq_extract_segments "$_raw" "video")" || return 1
 	_sent=0
 	IFS='
 '
