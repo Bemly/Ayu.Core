@@ -9,7 +9,7 @@ _qq_auth() {
 _qq_call() {
     _ep="$1" _body="$2"
     http_post "${QQ_API_BASE}/${_ep}" "$_body" \
-        "Content-Type:application/json;charset=utf-8" \
+        "Content-Type: application/json; charset=utf-8" \
         "$(_qq_auth)" || {
         _ERROR="qq.$_ep: $_ERROR"
         return 1
