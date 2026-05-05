@@ -47,9 +47,13 @@ dc_batch_run() {
 		[ -z "$_cid" ] && continue
 		log_info "dc-sync: fetching channel $_cid"
 
-		_resp="$(dc_message_list "$_cid" 2>/dev/null)" || {
-			log_err "dc-sync: list FAIL $_cid: $_ERROR"; continue
+		# Use temp file to avoid $() subshell (preserves _ERROR chain)
+		_tmp="/tmp/dc-sync-list-$$"
+		dc_message_list "$_cid" > "$_tmp" 2>/dev/null || {
+			log_err "dc-sync: list FAIL $_cid: $_ERROR"; rm -f "$_tmp"; continue
 		}
+		_resp="$(cat "$_tmp" 2>/dev/null)"
+		rm -f "$_tmp"
 		if [ -z "$_resp" ] || [ "$_resp" = "NOTFOUND" ] || [ "$_resp" = "[]" ]; then
 			log_info "dc-sync: channel $_cid empty"; continue
 		fi
