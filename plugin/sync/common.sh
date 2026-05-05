@@ -8,7 +8,6 @@
 . "$_HB/adapter/qq/message.sh"
 . "$_HB/adapter/qq/file.sh"
 . "$_HB/adapter/qq/group.sh"
-. "$_HB/adapter/qq/group.sh"
 . "$_HB/adapter/telegram/message.sh"
 . "$_HB/adapter/telegram/file.sh"
 . "$_HB/adapter/discord/message.sh"

@@ -57,12 +57,12 @@ sync_handler() {
 	fi
 	# Loop prevention 2: sender is the bot itself
 	case "$_pf" in
-		qq) [ "$_uid" = "3156037162" ] && return 0 ;;
+		qq) [ "$_uid" = "$QQ_BOT_ID" ] && return 0 ;;
 		telegram)
 			_fid="$(json_get "$_raw" from 2>/dev/null)" || _fid=""
 			if [ -n "$_fid" ] && [ "$_fid" != "NOTFOUND" ]; then
 				_fid_id="$(json_get "$_fid" id 2>/dev/null)" || _fid_id=""
-				[ "$_fid_id" = "8723729335" ] && return 0
+				[ "$_fid_id" = "$TG_BOT_ID" ] && return 0
 			fi
 			;;
 	esac

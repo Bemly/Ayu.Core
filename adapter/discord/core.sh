@@ -51,14 +51,3 @@ _dc_void() {
     }
     rm -f "$_out"
 }
-
-# Execute webhook — POST /webhooks/{id}/{token} (no Bot auth)
-dc_webhook_execute() {
-    _url="https://discord.com/api/webhooks/$1/$2"
-    _body="$(json_obj "content" "$3")"
-    [ -n "${4:-}" ] && _body="$(printf '%s' "$_body" | sed 's/}$/,"username":"'"$4"'"/}')"
-    http_post "$_url" "$_body" "$_CT_JSON" || {
-        _ERROR="dc.webhook_execute: $_ERROR"
-        return 1
-    }
-}

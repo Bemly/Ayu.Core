@@ -16,6 +16,10 @@ TG_API_HOST="${TG_API_HOST:-api.telegram.org}"
 TG_API_SECRET="${TG_API_SECRET:-}"
 TG_API_BASE="https://${TG_API_HOST}/bot${TG_TOKEN}"
 
+# ---- Bot self-IDs (loop prevention) ----
+QQ_BOT_ID="${QQ_BOT_ID:-3156037162}"
+TG_BOT_ID="${TG_BOT_ID:-8723729335}"
+
 # ---- Discord ----
 DC_TOKEN="${DC_TOKEN:-}"
 DC_API_BASE="https://discord.com/api/v10"
