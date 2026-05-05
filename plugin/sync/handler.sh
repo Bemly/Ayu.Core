@@ -177,6 +177,7 @@ sync_handler() {
 						mkdir -p "$_STATE_DIR/msg-map-rev/$_gid"
 						chmod 777 "$_STATE_DIR/msg-map-rev/$_gid" 2>/dev/null
 						echo "telegram $_tcid $_tmid" >> "$_STATE_DIR/msg-map-rev/$_gid/$_rseq"
+						echo "$_gid $_rseq" > "/tmp/sync-tg-qq-$$"
 						mkdir -p "$_STATE_DIR/msg-map/$_tcid"
 						chmod 777 "$_STATE_DIR/msg-map/$_tcid" 2>/dev/null
 						echo "$_gid $_rseq" > "$_STATE_DIR/msg-map/$_tcid/$_tmid"
@@ -219,6 +220,13 @@ sync_handler() {
 					chmod 666 "$_STATE_DIR/msg-map/$_tid/$_dmid" 2>/dev/null
 					mkdir -p "$_STATE_DIR/msg-map-rev/${_sid#group/}" && chmod 777 "$_STATE_DIR/msg-map-rev/${_sid#group/}" 2>/dev/null
 					echo "discord $_tid $_dmid" >> "$_STATE_DIR/msg-map-rev/${_sid#group/}/$_rseq"
+					# If source is TG, also append to QQ rev-map
+					if [ "$_pf" = "telegram" ] && [ -f "/tmp/sync-tg-qq-$$" ]; then
+						read -r _qq_gid _qq_seq < "/tmp/sync-tg-qq-$$"
+						echo "discord $_tid $_dmid" >> "$_STATE_DIR/msg-map-rev/$_qq_gid/$_qq_seq"
+						chmod 666 "$_STATE_DIR/msg-map-rev/$_qq_gid/$_qq_seq" 2>/dev/null
+						rm -f "/tmp/sync-tg-qq-$$"
+					fi
 					chmod 666 "$_STATE_DIR/msg-map-rev/${_sid#group/}/$_rseq" 2>/dev/null
 				fi
 			else
