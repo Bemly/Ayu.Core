@@ -21,24 +21,25 @@ plugin/sync/
 |------|------|--------|
 | QQ→TG | `🐧 用户: 消息` | emoji 前缀 + bot 发送者 ID |
 | TG→QQ | `✈️ 用户: 消息` | emoji 前缀 + bot 发送者 ID |
-| →DC | `👾 用户: 消息` | (未实现) |
+| QQ→DC | `🐧 用户: 消息` | emoji 前缀 + bot 发送者 ID |
+| TG→DC | `✈️ 用户: 消息` | emoji 前缀 + bot 发送者 ID |
+| DC→QQ | `👾 用户: 消息` | 发送者 ID (`DC_BOT_ID`) |
+| DC→TG | `👾 用户: 消息` | 发送者 ID (`DC_BOT_ID`) |
 
 ## 内容类型处理
 
-| 类型 | QQ→TG | TG→QQ |
-|------|-------|-------|
-| 文字 | `sendMessage` + 🐧 前缀 | QQ text segment + ✈️ 前缀 |
-| 图片 | 下载 → GIF 检测 → `sendAnimation`/`sendPhoto` | 下载 → image segment (`file://` URI) |
-| 文件 | 下载 → multipart `sendDocument` | 下载 → `upload_group_file` |
-| 贴纸 | — | 静态 WEBP → 图片；视频 WEBM/TGS → 文件 |
-| 表情反应 | — | `message_reaction` → msg-map 查映射 → `send_group_message_reaction` |
-| GIF/动画 | — | 下载 → `upload_group_file`（TG 转为 MP4） |
-| 语音 | 下载 `temp_url` → multipart `sendVoice` | 下载 → QQ record segment |
-| 视频 | 下载 `temp_url` → multipart `sendVideo` | 下载 → QQ video segment |
-| 回复 | 文字中包含上下文 | 文字中包含上下文 |
-| 转发 | `[转发]` 前缀 | `[转发]` 前缀 |
-| 撤回 | `message_recall` → 反向映射 → `deleteMessage` | —（TG webhook 不含删除事件） |
-| 位置/联系人/骰子/投票 | 文字标签 | 文字标签 |
+| 类型 | QQ→TG | TG→QQ | QQ→DC | TG→DC | DC→QQ/TG |
+|------|-------|-------|-------|-------|----------|
+| 文字 | `sendMessage` + 🐧 | QQ text segment + ✈️ | `dc_message_create` + 🐧 | `dc_message_create` + ✈️ | 文字 + 👾（每日批量） |
+| 图片 | 下载 → GIF 检测 → `sendAnimation`/`sendPhoto` | 下载 → image segment | 下载 → multipart POST | 下载 → multipart POST | — |
+| 文件 | 下载 → multipart `sendDocument` | 下载 → `upload_group_file` | 下载 → multipart POST | 下载 → multipart POST | — |
+| 贴纸 | — | 静态 WEBP → 图片；视频 WEBM/TGS → 文件 | — | 静态 → 图片；视频 → 文件 | — |
+| 表情反应 | — | msg-map 查映射 → `send_group_message_reaction` | — | — | — |
+| GIF | — | 下载 → `upload_group_file`（MP4） | — | 下载 → multipart POST | — |
+| 语音 | 下载 → multipart `sendVoice` | 下载 → QQ record | 下载 → multipart POST | 下载 → multipart POST | — |
+| 视频 | 下载 → multipart `sendVideo` | 下载 → QQ video | 下载 → multipart POST | 下载 → multipart POST | — |
+| 撤回 | rev-map → `deleteMessage` | — | rev-map → `dc_message_delete` | — | —（DC 删除无 webhook 通知） |
+| 位置/联系人/骰子/投票 | 文字标签 | 文字标签 | 文字标签 | 文字标签 | — |
 
 ## 配置
 
@@ -67,8 +68,9 @@ telegram/X=qq/group/B           # 同一个 TG → 2 个 QQ 群
 
 ## 限制
 
-- Discord→QQ/TG 需要 Gateway (WebSocket)，纯 shell 无法实现
+- Discord→QQ/TG 消息为每日批量拉取（Discord 消息事件需要 Gateway/WebSocket）
+- DC→QQ/TG 撤回不可行（Discord webhook 不含删除事件）
 - TG→QQ 撤回不可行（TG webhook 不含删除事件）
-- TG Bot API `getFile` 有 **20MB** 文件大小限制 —— 超过 20MB 的文件（如长视频）可通过 webhook 接收但无法下载转发，会被跳过并记录日志
+- TG Bot API `getFile` 有 **20MB** 文件大小限制
 
-QQ↔Telegram 完全双向同步 —— 文字、图片、文件、语音、视频、贴纸、表情反应、撤回（QQ→TG）。
+QQ↔Telegram 完全双向同步。Discord 已接入三端：实时出站（QQ/TG→DC）+ 每日批量入站（DC→QQ/TG）。QQ 撤回顾及 TG 和 DC 双端。

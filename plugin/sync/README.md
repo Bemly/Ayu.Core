@@ -21,24 +21,25 @@ plugin/sync/
 |---------|--------|-----------------|
 | QQ→TG | `🐧 用户: 消息` | emoji prefix + bot sender ID |
 | TG→QQ | `✈️ 用户: 消息` | emoji prefix + bot sender ID |
-| →DC | `👾 用户: 消息` | (not implemented) |
+| QQ→DC | `🐧 用户: 消息` | emoji prefix + bot sender ID |
+| TG→DC | `✈️ 用户: 消息` | emoji prefix + bot sender ID |
+| DC→QQ | `👾 用户: 消息` | sender ID (`DC_BOT_ID`) |
+| DC→TG | `👾 用户: 消息` | sender ID (`DC_BOT_ID`) |
 
 ## Content Type Handling
 
-| Type | QQ→TG | TG→QQ |
-|------|-------|-------|
-| Text | `sendMessage` with 🐧 prefix | QQ text segment with ✈️ prefix |
-| Image | Download → GIF detection → `sendAnimation`/`sendPhoto` | Download → image segment (`file://` URI) |
-| File | Download → multipart `sendDocument` | Download → `upload_group_file` |
-| Sticker | — | Static WEBP → image; Video WEBM/TGS → file |
-| Reaction | — | `message_reaction` → msg-map lookup → `send_group_message_reaction` |
-| GIF/Animation | — | Download → `upload_group_file` (TG converts to MP4) |
-| Voice | Download `temp_url` → multipart `sendVoice` | Download → QQ `record` segment |
-| Video | Download `temp_url` → multipart `sendVideo` | Download → QQ `video` segment |
-| Reply | Context in text | Context in text |
-| Forward | `[转发]` prefix | `[转发]` prefix |
-| Recall | `message_recall` → rev-map lookup → `deleteMessage` | — (TG webhooks don't include deletions) |
-| Location/Contact/Dice/Poll | Text label | Text label |
+| Type | QQ→TG | TG→QQ | QQ→DC | TG→DC | DC→QQ/TG |
+|------|-------|-------|-------|-------|----------|
+| Text | `sendMessage` + 🐧 | QQ text segment + ✈️ | `dc_message_create` + 🐧 | `dc_message_create` + ✈️ | Text + 👾 (daily batch) |
+| Image | Download → GIF detect → `sendAnimation`/`sendPhoto` | Download → image segment | Download → multipart POST | Download → multipart POST | — |
+| File | Download → multipart `sendDocument` | Download → `upload_group_file` | Download → multipart POST | Download → multipart POST | — |
+| Sticker | — | Static WEBP → image; Video WEBM/TGS → file | — | Static → image; Video → file | — |
+| Reaction | — | msg-map lookup → `send_group_message_reaction` | — | — | — |
+| GIF | — | Download → `upload_group_file` (MP4) | — | Download → multipart POST | — |
+| Voice | Download → multipart `sendVoice` | Download → QQ `record` | Download → multipart POST | Download → multipart POST | — |
+| Video | Download → multipart `sendVideo` | Download → QQ `video` | Download → multipart POST | Download → multipart POST | — |
+| Recall | rev-map → `deleteMessage` | — | rev-map → `dc_message_delete` | — | — (no webhook for DC deletes) |
+| Location/Contact/Dice/Poll | Text label | Text label | Text label | Text label | — |
 
 ## Configuration
 
@@ -48,6 +49,8 @@ plugin/sync/
 qq/group/123456=telegram/-100111            # QQ group → TG group
 qq/group/123456=telegram/-100111/16553      # QQ group → TG forum topic
 telegram/-100111=qq/group/123456            # TG group → QQ group
+qq/group/123456=discord/ch123456            # QQ group → DC channel
+discord/ch123456=qq/group/123456            # DC channel → QQ (daily batch)
 ```
 
 Supports any number of mappings. Each line is read independently — one source message can be forwarded to multiple targets, and multiple sources can feed the same target. No practical limit on line count.
@@ -67,8 +70,9 @@ telegram/X=qq/group/B           # same TG → 2 QQ groups
 
 ## Limitations
 
-- Discord→QQ/TG requires Gateway (WebSocket), not feasible in pure shell
+- Discord→QQ/TG messages are polled daily (Discord message events require Gateway/WebSocket)
+- DC→QQ/TG recall is not possible (Discord webhooks don't include deletion events)
 - TG→QQ recall is not possible (TG webhooks don't include deletion events)
-- TG Bot API `getFile` has a **20MB** file size limit — files larger than 20MB (e.g., long videos) can be received via webhook but cannot be downloaded for forwarding. These are skipped with a log message.
+- TG Bot API `getFile` has a **20MB** file size limit
 
-QQ↔Telegram is fully bidirectional — text, image, file, voice, video, sticker, reaction, recall (QQ→TG).
+QQ↔Telegram fully bidirectional. Discord integrated for all three platforms with real-time outbound (QQ/TG→DC) and daily batch inbound (DC→QQ/TG). QQ recall syncs to both TG and DC.
