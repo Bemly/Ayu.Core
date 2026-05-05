@@ -41,14 +41,22 @@ sync_handler() {
 		if [ -n "$_gid" ] && [ -n "$_seq" ] && [ "$_gid" != "NOTFOUND" ] && [ "$_seq" != "NOTFOUND" ]; then
 			_map="/test/var/state/msg-map-rev/$_gid/$_seq"
 			if [ -f "$_map" ]; then
-				read -r _tcid _tmid < "$_map"
-				if tg_deleteMessage "$_tcid" "$_tmid" >/dev/null 2>/dev/null; then
-					log_info "sync: recall qq-tg OK gid=$_gid seq=$_seq tcid=$_tcid tmid=$_tmid"
-				else
-					log_err "sync: recall qq-tg FAIL: $_ERROR"
-				fi
+				read -r _tpf_val _tid1 _tid2 < "$_map"
+				if [ -z "$_tid2" ]; then
+						_tid2="$_tid1"; _tid1="$_tpf_val"; _tpf_val="telegram"
+					fi
+					_ok=0
+					case "$_tpf_val" in
+						telegram) tg_deleteMessage "$_tid1" "$_tid2" >/dev/null 2>/dev/null && _ok=1 ;;
+						discord) dc_message_delete "$_tid1" "$_tid2" >/dev/null 2>/dev/null && _ok=1 ;;
+					esac
+					if [ $_ok -eq 1 ]; then
+						log_info "sync: recall qq->$_tpf_val OK gid=$_gid seq=$_seq"
+					else
+						log_err "sync: recall qq->$_tpf_val FAIL: $_ERROR"
+					fi
 				rm -f "$_map"
-				rm -f "/test/var/state/msg-map/$_tcid/$_tmid" 2>/dev/null
+				rm -f "/test/var/state/msg-map/$_tid1/$_tid2" 2>/dev/null
 			else
 				log_debug "sync: recall no rev-map $_gid/$_seq"
 			fi
@@ -210,8 +218,19 @@ sync_handler() {
 			esac
 			;;
 		discord)
-			if dc_message_create "$_tid" "$_dc_body" >/dev/null; then
+			_dc_resp="$(dc_message_create "$_tid" "$_dc_body" 2>/dev/null)" || _dc_resp=""
+			if [ -n "$_dc_resp" ] && [ "$_dc_resp" != "NOTFOUND" ]; then
 				log_info "sync: $_pf→dc text OK"
+				_dmid="$(json_get "$_dc_resp" id 2>/dev/null)" || _dmid=""
+				_rseq="$(json_get "$_raw" message_seq 2>/dev/null)" || _rseq=""
+				if [ -n "$_dmid" ] && [ -n "$_rseq" ] && [ "$_dmid" != "NOTFOUND" ] && [ "$_rseq" != "NOTFOUND" ]; then
+					mkdir -p "/test/var/state/msg-map/$_tid" && chmod 777 "/test/var/state/msg-map/$_tid" 2>/dev/null
+					echo "${_sid#group/} $_rseq" > "/test/var/state/msg-map/$_tid/$_dmid"
+					chmod 666 "/test/var/state/msg-map/$_tid/$_dmid" 2>/dev/null
+					mkdir -p "/test/var/state/msg-map-rev/${_sid#group/}" && chmod 777 "/test/var/state/msg-map-rev/${_sid#group/}" 2>/dev/null
+					echo "discord $_tid $_dmid" > "/test/var/state/msg-map-rev/${_sid#group/}/$_rseq"
+					chmod 666 "/test/var/state/msg-map-rev/${_sid#group/}/$_rseq" 2>/dev/null
+				fi
 			else
 				log_err "sync: $_pf→dc FAIL: $_ERROR"
 			fi
