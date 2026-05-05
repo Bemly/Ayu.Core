@@ -22,7 +22,7 @@ TG_BOT_ID="${TG_BOT_ID:-8723729335}"
 
 # ---- Discord ----
 DC_TOKEN="${DC_TOKEN:-}"
-DC_API_BASE="${DC_API_BASE:-https://dchook.bemly.moe/api/v10}"
+DC_API_BASE="https://discord.com/api/v10"
 DC_BOT_ID="${DC_BOT_ID:-}"
 
 # ---- Bot server ----
