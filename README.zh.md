@@ -1,10 +1,10 @@
-# Ayu.Core
+![# Ayu.Core](https://socialify.git.ci/Bemly/Ayu.Core/image?custom_description=%E7%94%B1+%E5%BD%A9%E6%A2%A6%E6%A0%B8%E5%BF%83+%E9%A9%B1%E5%8A%A8%E7%9A%84%E7%BA%AF+Shell+%E6%9C%BA%E5%99%A8%E4%BA%BA%E6%A1%86%E6%9E%B6&description=1&font=KoHo&logo=https%3A%2F%2Fraw.githubusercontent.com%2FBemly%2FAyu.Core%2Frefs%2Fheads%2Fmain%2Fwebui%2Flogo.jpg&name=1&pattern=Formal+Invitation&theme=Light)
 
-> [English](README.md)
+[![test](https://github.com/Bemly/Ayu.Core/actions/workflows/test.yml/badge.svg)](https://github.com/Bemly/Ayu.Core/actions/workflows/test.yml)
 
 纯 shell SNS Bot 框架。运行在 busybox:musl 容器中，hush + httpd CGI + 原生 TLS 传输 + [hush-json](https://github.com/Bemly/hush-json)。
 
-[![test](https://github.com/Bemly/Ayu.Core/actions/workflows/test.yml/badge.svg)](https://github.com/Bemly/Ayu.Core/actions/workflows/test.yml)
+> [English](README.md)
 
 ## 适配器覆盖
 
