@@ -156,18 +156,24 @@ _sync_source_id() {
 }
 
 # Upload file to Telegram via multipart/form-data
+# Usage: _sync_tg_multipart <chat> <thread> <file> <filename> <method> <field> [mime] [caption] [duration]
 _sync_tg_multipart() {
-	_chat="$1" _thr="$2" _file="$3" _fname="$4" _cap="$5"
+	_chat="$1" _thr="$2" _file="$3" _fname="$4" _method="$5" _field="$6"
+	_mime="${7:-application/octet-stream}" _cap="${8:-}" _dur="${9:-}"
 	_bound="ayu-$$-$(date +%s)"
 	_tmp="/tmp/tg-up-$$"
-	# Build multipart body
 	> "$_tmp"
 	printf '--%s\r\n' "$_bound" >> "$_tmp"
 	printf 'Content-Disposition: form-data; name="chat_id"\r\n\r\n' >> "$_tmp"
 	printf '%s\r\n' "$_chat" >> "$_tmp"
+	if [ -n "$_thr" ]; then
+		printf '--%s\r\n' "$_bound" >> "$_tmp"
+		printf 'Content-Disposition: form-data; name="message_thread_id"\r\n\r\n' >> "$_tmp"
+		printf '%s\r\n' "$_thr" >> "$_tmp"
+	fi
 	printf '--%s\r\n' "$_bound" >> "$_tmp"
-	printf 'Content-Disposition: form-data; name="photo"; filename="%s"\r\n' "$_fname" >> "$_tmp"
-	printf 'Content-Type: application/octet-stream\r\n\r\n' >> "$_tmp"
+	printf 'Content-Disposition: form-data; name="%s"; filename="%s"\r\n' "$_field" "$_fname" >> "$_tmp"
+	printf 'Content-Type: %s\r\n\r\n' "$_mime" >> "$_tmp"
 	cat "$_file" >> "$_tmp"
 	printf '\r\n' >> "$_tmp"
 	if [ -n "$_cap" ]; then
@@ -175,14 +181,13 @@ _sync_tg_multipart() {
 		printf 'Content-Disposition: form-data; name="caption"\r\n\r\n' >> "$_tmp"
 		printf '%s\r\n' "$_cap" >> "$_tmp"
 	fi
-	if [ -n "$_thr" ]; then
+	if [ -n "$_dur" ]; then
 		printf '--%s\r\n' "$_bound" >> "$_tmp"
-		printf 'Content-Disposition: form-data; name="message_thread_id"\r\n\r\n' >> "$_tmp"
-		printf '%s\r\n' "$_thr" >> "$_tmp"
+		printf 'Content-Disposition: form-data; name="duration"\r\n\r\n' >> "$_tmp"
+		printf '%s\r\n' "$_dur" >> "$_tmp"
 	fi
 	printf '--%s--\r\n' "$_bound" >> "$_tmp"
-	# Send
-	_url="${TG_API_BASE}/sendPhoto"
+	_url="${TG_API_BASE}/${_method}"
 	if http_post_file "$_url" "$_tmp" \
 		"Content-Type: multipart/form-data; boundary=$_bound" \
 		"$_TG_AUTH" >/dev/null; then
