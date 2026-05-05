@@ -241,3 +241,148 @@ _sync_tg_video_to_qq() {
 		log_err "sync: tg-qq video FAIL: $_ERROR"; rm -f "$_tmp"; return 1
 	fi
 }
+
+# Forward TG photo to DC (tg_getFile -> download -> upload via multipart)
+_sync_tg_photo_to_dc() {
+	_raw="$1" _cid="$2" _sender="$3"
+	_photos="$(json_get "$_raw" photo 2>/dev/null)" || return 1
+	if [ -z "$_photos" ] || [ "$_photos" = "NOTFOUND" ]; then return 1; fi
+	_fid="$(printf '%s' "$_photos" | sed -n 's/.*"file_id":"\([^"]*\)".*/\1/p' | tail -1)"
+	if [ -z "$_fid" ]; then return 1; fi
+	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || { log_err "sync: tg->dc photo getFile FAIL"; return 1; }
+	_fp="$(cat "/tmp/tg-fp-$$")"; rm -f "/tmp/tg-fp-$$"
+	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
+	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then log_err "sync: tg->dc photo no file_path"; return 1; fi
+	_fname="${_path##*/}"
+	_ts=$(date +%s)
+	_tmp="/tmp/img/sync-dc-tg-img-$$-$_ts"
+	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
+	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || { log_err "sync: tg->dc photo download FAIL"; rm -f "$_tmp"; return 1; }
+	if _sync_dc_multipart "$_cid" "$_tmp" "$_fname" "image/jpeg" "✈️ $_sender: [图片]"; then
+		log_info "sync: tg->dc photo OK"; rm -f "$_tmp"; return 0
+	else
+		log_err "sync: tg->dc photo FAIL: $_ERROR"; rm -f "$_tmp"; return 1
+	fi
+}
+
+# Forward TG document to DC (download, multipart POST)
+_sync_tg_document_to_dc() {
+	_raw="$1" _cid="$2" _sender="$3"
+	_doc="$(json_get "$_raw" document 2>/dev/null)" || return 1
+	if [ -z "$_doc" ] || [ "$_doc" = "NOTFOUND" ]; then return 1; fi
+	_fid="$(json_get "$_doc" file_id 2>/dev/null)" || _fid=""
+	if [ -z "$_fid" ] || [ "$_fid" = "NOTFOUND" ]; then return 1; fi
+	_fn="$(json_get "$_doc" file_name 2>/dev/null)" || _fn="file"
+	[ "$_fn" = "NOTFOUND" ] && _fn="file"
+	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || { log_err "sync: tg->dc doc getFile FAIL"; return 1; }
+	_fp="$(cat "/tmp/tg-fp-$$")"; rm -f "/tmp/tg-fp-$$"
+	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
+	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then log_err "sync: tg->dc doc no file_path"; return 1; fi
+	_ts=$(date +%s)
+	_tmp="/tmp/img/sync-dc-tg-doc-$$-$_ts"
+	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
+	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || { log_err "sync: tg->dc doc download FAIL"; rm -f "$_tmp"; return 1; }
+	if _sync_dc_multipart "$_cid" "$_tmp" "$_fn" "application/octet-stream" "✈️ $_sender: [文件] $_fn"; then
+		log_info "sync: tg->dc doc OK"; rm -f "$_tmp"; return 0
+	else
+		log_err "sync: tg->dc doc FAIL: $_ERROR"; rm -f "$_tmp"; return 1
+	fi
+}
+
+# Forward TG voice to DC (download, multipart POST)
+_sync_tg_voice_to_dc() {
+	_raw="$1" _cid="$2" _sender="$3"
+	_voice="$(json_get "$_raw" voice 2>/dev/null)" || return 1
+	if [ -z "$_voice" ] || [ "$_voice" = "NOTFOUND" ]; then return 1; fi
+	_fid="$(json_get "$_voice" file_id 2>/dev/null)" || _fid=""
+	if [ -z "$_fid" ] || [ "$_fid" = "NOTFOUND" ]; then return 1; fi
+	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || { log_err "sync: tg->dc voice getFile FAIL"; return 1; }
+	_fp="$(cat "/tmp/tg-fp-$$")"; rm -f "/tmp/tg-fp-$$"
+	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
+	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then log_err "sync: tg->dc voice no file_path"; return 1; fi
+	_ts=$(date +%s)
+	_tmp="/tmp/img/sync-dc-tg-voice-$$-$_ts"
+	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
+	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || { log_err "sync: tg->dc voice download FAIL"; rm -f "$_tmp"; return 1; }
+	if _sync_dc_multipart "$_cid" "$_tmp" "voice.ogg" "audio/ogg" "✈️ $_sender: [语音]"; then
+		log_info "sync: tg->dc voice OK"; rm -f "$_tmp"; return 0
+	else
+		log_err "sync: tg->dc voice FAIL: $_ERROR"; rm -f "$_tmp"; return 1
+	fi
+}
+
+# Forward TG video to DC (download, multipart POST)
+_sync_tg_video_to_dc() {
+	_raw="$1" _cid="$2" _sender="$3"
+	_video="$(json_get "$_raw" video 2>/dev/null)" || return 1
+	if [ -z "$_video" ] || [ "$_video" = "NOTFOUND" ]; then return 1; fi
+	_fid="$(json_get "$_video" file_id 2>/dev/null)" || _fid=""
+	if [ -z "$_fid" ] || [ "$_fid" = "NOTFOUND" ]; then return 1; fi
+	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || { log_err "sync: tg->dc video getFile FAIL"; return 1; }
+	_fp="$(cat "/tmp/tg-fp-$$")"; rm -f "/tmp/tg-fp-$$"
+	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
+	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then log_err "sync: tg->dc video no file_path"; return 1; fi
+	_ts=$(date +%s)
+	_tmp="/tmp/img/sync-dc-tg-video-$$-$_ts"
+	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
+	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || { log_err "sync: tg->dc video download FAIL"; rm -f "$_tmp"; return 1; }
+	if _sync_dc_multipart "$_cid" "$_tmp" "video.mp4" "video/mp4" "✈️ $_sender: [视频]"; then
+		log_info "sync: tg->dc video OK"; rm -f "$_tmp"; return 0
+	else
+		log_err "sync: tg->dc video FAIL: $_ERROR"; rm -f "$_tmp"; return 1
+	fi
+}
+
+# Forward TG sticker to DC (static->image, video->file)
+_sync_tg_sticker_to_dc() {
+	_raw="$1" _cid="$2" _sender="$3"
+	_sticker="$(json_get "$_raw" sticker 2>/dev/null)" || return 1
+	if [ -z "$_sticker" ] || [ "$_sticker" = "NOTFOUND" ]; then return 1; fi
+	_fid="$(printf '%s' "$_sticker" | sed -n 's/.*"file_id":"\([^"]*\)".*/\1/p' | tail -1)"
+	if [ -z "$_fid" ]; then return 1; fi
+	_ani="$(json_get "$_sticker" is_animated 2>/dev/null)" || _ani=""
+	_vid="$(json_get "$_sticker" is_video 2>/dev/null)" || _vid=""
+	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || { log_err "sync: tg->dc sticker getFile FAIL"; return 1; }
+	_fp="$(cat "/tmp/tg-fp-$$")"; rm -f "/tmp/tg-fp-$$"
+	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
+	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then log_err "sync: tg->dc sticker no file_path"; return 1; fi
+	_ts=$(date +%s)
+	_ext="${_path##*.}"
+	_tmp="/tmp/img/sync-dc-tg-sticker-$$-$_ts.$_ext"
+	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
+	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || { log_err "sync: tg->dc sticker download FAIL"; rm -f "$_tmp"; return 1; }
+	if [ "$_vid" = "true" ] || [ "$_ani" = "true" ]; then
+		_cap="✈️ $_sender: [贴纸-视频]"
+		_mime="video/webm"
+	else
+		_cap="✈️ $_sender: [贴纸]"
+		_mime="image/webp"
+	fi
+	if _sync_dc_multipart "$_cid" "$_tmp" "sticker.$_ext" "$_mime" "$_cap"; then
+		log_info "sync: tg->dc sticker OK"; rm -f "$_tmp"; return 0
+	else
+		log_err "sync: tg->dc sticker FAIL: $_ERROR"; rm -f "$_tmp"; return 1
+	fi
+}
+
+# Forward TG animation (GIF -> DC file)
+_sync_tg_animation_to_dc() {
+	_raw="$1" _cid="$2" _sender="$3"
+	_ani="$(json_get "$_raw" animation 2>/dev/null)" || return 1
+	if [ -z "$_ani" ] || [ "$_ani" = "NOTFOUND" ]; then return 1; fi
+	_fid="$(json_get "$_ani" file_id 2>/dev/null)" || _fid=""
+	if [ -z "$_fid" ] || [ "$_fid" = "NOTFOUND" ]; then return 1; fi
+	tg_getFile "$_fid" > "/tmp/tg-fp-$$" 2>/dev/null || { log_err "sync: tg->dc anim getFile FAIL"; return 1; }
+	_fp="$(cat "/tmp/tg-fp-$$")"; rm -f "/tmp/tg-fp-$$"
+	_path="$(json_get "$_fp" file_path 2>/dev/null)" || _path=""
+	if [ -z "$_path" ] || [ "$_path" = "NOTFOUND" ]; then log_err "sync: tg->dc anim no file_path"; return 1; fi
+	_ts=$(date +%s)
+	_tmp="/tmp/img/sync-dc-tg-anim-$$-$_ts"
+	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
+	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || { log_err "sync: tg->dc anim download FAIL"; rm -f "$_tmp"; return 1; }
+	if _sync_dc_multipart "$_cid" "$_tmp" "animation.mp4" "video/mp4" "✈️ $_sender: [GIF]"; then
+		log_info "sync: tg->dc anim OK"; rm -f "$_tmp"; return 0
+	else
+		log_err "sync: tg->dc anim FAIL: $_ERROR"; rm -f "$_tmp"; return 1
+	fi
+}

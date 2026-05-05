@@ -93,6 +93,23 @@ _sync_get_sender() {
 		[ -z "$_id" ] && _id="$_id"
 		printf "%s(%s)" "$_nm" "$_id"
 		;;
+	discord)
+		_nm="" _id=""
+		_author="$(json_get "$_raw" author 2>/dev/null)" || _author=""
+		if [ -n "$_author" ] && [ "$_author" != "NOTFOUND" ]; then
+			_un="$(json_get "$_author" username 2>/dev/null)" || _un=""
+			_dn="$(json_get "$_author" global_name 2>/dev/null)" || _dn=""
+			_id="$(json_get "$_author" id 2>/dev/null)" || _id=""
+			if [ -n "$_dn" ] && [ "$_dn" != "NOTFOUND" ]; then
+				_nm="$_dn"
+			elif [ -n "$_un" ] && [ "$_un" != "NOTFOUND" ]; then
+				_nm="$_un"
+			fi
+		fi
+		[ -z "$_nm" ] && _nm="unknown"
+		[ "$_id" = "NOTFOUND" ] && _id=""
+		printf "%s(%s)" "$_nm" "$_id"
+		;;
 	*) printf "unknown" ;;
 	esac
 }
@@ -126,6 +143,12 @@ _sync_source_id() {
 			printf '%s' "$_cid"
 			_thr="$(json_get "$_raw" message_thread_id 2>/dev/null)" || _thr=""
 			[ -n "$_thr" ] && [ "$_thr" != "NOTFOUND" ] && printf '/%s' "$_thr"
+		fi
+		;;
+	discord)
+		_cid="$(json_get "$_raw" channel_id 2>/dev/null)" || _cid=""
+		if [ -n "$_cid" ] && [ "$_cid" != "NOTFOUND" ]; then
+			printf '%s' "$_cid"
 		fi
 		;;
 	esac
@@ -162,6 +185,36 @@ _sync_tg_multipart() {
 	if http_post_file "$_url" "$_tmp" \
 		"Content-Type: multipart/form-data; boundary=$_bound" \
 		"X-Ayu-Token: ${TG_API_SECRET}" >/dev/null; then
+		rm -f "$_tmp"; return 0
+	else
+		rm -f "$_tmp"; return 1
+	fi
+}
+
+# Upload file to Discord via multipart/form-data (bot auth)
+# Usage: _sync_dc_multipart <channel_id> <file_path> <filename> <mime> [caption]
+_sync_dc_multipart() {
+	_cid="$1" _file="$2" _fname="$3" _mime="$4" _cap="${5:-}"
+	_bound="ayu-dc-$$-$(date +%s)"
+	_tmp="/tmp/dc-up-$$"
+	> "$_tmp"
+	# JSON payload part
+	_json="$(json_obj "content" "$_cap")"
+	printf '--%s\r\n' "$_bound" >> "$_tmp"
+	printf 'Content-Disposition: form-data; name="payload_json"\r\n' >> "$_tmp"
+	printf 'Content-Type: application/json\r\n\r\n' >> "$_tmp"
+	printf '%s\r\n' "$_json" >> "$_tmp"
+	# File part
+	printf '--%s\r\n' "$_bound" >> "$_tmp"
+	printf 'Content-Disposition: form-data; name="files[0]"; filename="%s"\r\n' "$_fname" >> "$_tmp"
+	printf 'Content-Type: %s\r\n\r\n' "$_mime" >> "$_tmp"
+	cat "$_file" >> "$_tmp"
+	printf '\r\n--%s--\r\n' "$_bound" >> "$_tmp"
+	# Send
+	_url="${DC_API_BASE}/channels/${_cid}/messages"
+	if http_post_file "$_url" "$_tmp" \
+		"Content-Type: multipart/form-data; boundary=$_bound" \
+		"Authorization: Bot ${DC_TOKEN}" >/dev/null; then
 		rm -f "$_tmp"; return 0
 	else
 		rm -f "$_tmp"; return 1

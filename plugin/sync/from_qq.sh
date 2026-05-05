@@ -242,4 +242,134 @@ _sync_qq_video_to_tg() {
 	[ $_sent -gt 0 ] && return 0 || return 1
 }
 
+# Forward QQ images to DC (download, multipart POST)
+_sync_qq_images_to_dc() {
+	_raw="$1" _cid="$2" _sender="$3"
+	_segs="$(json_get "$_raw" segments 2>/dev/null)" || _segs=""
+	if [ -z "$_segs" ] || [ "$_segs" = "NOTFOUND" ]; then return 1; fi
+	_imgs="$(printf '%s' "$_segs" | sed 's/},{"type"/\
+{"type"/g' | grep '"type":"image"')"
+	if [ -z "$_imgs" ]; then return 1; fi
+	_sent=0
+	IFS='
+'
+	for _img in $_imgs; do
+		_url="$(printf '%s' "$_img" | sed -n 's/.*"temp_url":"\([^"]*\)".*/\1/p')"
+		[ -z "$_url" ] && continue
+		_url="$(utf8_decode "$_url")"
+		_ts=$(date +%s)
+		_tmp="/tmp/img/sync-dc-qq-img-$$-$_ts"
+		http_get_file "$_url" "$_tmp" || { log_err "sync: qq->dc img download FAIL"; rm -f "$_tmp"; continue; }
+		_magic="$(dd if="$_tmp" bs=3 count=1 2>/dev/null)"
+		if [ "$_magic" = "GIF" ]; then
+			_mime="image/gif" _ext="gif"
+		else
+			_mime="image/png" _ext="png"
+		fi
+		if _sync_dc_multipart "$_cid" "$_tmp" "qq-image.$_ext" "$_mime" "🐧 $_sender: [图片]"; then
+			_sent=$((_sent + 1)); log_info "sync: qq->dc image OK"
+		else
+			log_err "sync: qq->dc image FAIL: $_ERROR"
+		fi
+		rm -f "$_tmp"
+	done
+	log_info "sync: qq->dc images sent=$_sent"
+	[ $_sent -gt 0 ] && return 0 || return 1
+}
+
+# Forward QQ files to DC (download, multipart POST)
+_sync_qq_files_to_dc() {
+	_raw="$1" _cid="$2" _sender="$3" _gid="$4"
+	_segs="$(json_get "$_raw" segments 2>/dev/null)" || _segs=""
+	if [ -z "$_segs" ] || [ "$_segs" = "NOTFOUND" ]; then return 1; fi
+	_files="$(printf '%s' "$_segs" | sed 's/},{"type"/\
+{"type"/g' | grep '"type":"file"')"
+	if [ -z "$_files" ]; then return 1; fi
+	_sent=0
+	IFS='
+'
+	for _f in $_files; do
+		_fid="$(printf '%s' "$_f" | sed -n 's/.*"file_id":"\([^"]*\)".*/\1/p')"
+		_fn="$(printf '%s' "$_f" | sed -n 's/.*"file_name":"\([^"]*\)".*/\1/p')"
+		[ -z "$_fid" ] && continue
+		_fn="$(utf8_decode "$_fn")"
+		_dl="$(qq_file_get_download_url "$_gid" "$_fid" 2>/dev/null)" || _dl=""
+		if [ -z "$_dl" ] || [ "$_dl" = "NOTFOUND" ]; then
+			log_err "sync: qq->dc file no url fid=$_fid"; continue
+		fi
+		_url="$(json_get "$_dl" download_url 2>/dev/null)" || _url=""
+		[ -z "$_url" ] && _url="$_dl"
+		_url="$(utf8_decode "$_url")"
+		_ts=$(date +%s)
+		_tmp="/tmp/img/sync-dc-qq-file-$$-$_ts"
+		http_get_file "$_url" "$_tmp" || { log_err "sync: qq->dc file download FAIL"; rm -f "$_tmp"; continue; }
+		if _sync_dc_multipart "$_cid" "$_tmp" "$_fn" "application/octet-stream" "🐧 $_sender: [文件] $_fn"; then
+			_sent=$((_sent + 1)); log_info "sync: qq->dc file OK"
+		else
+			log_err "sync: qq->dc file FAIL: $_ERROR"
+		fi
+		rm -f "$_tmp"
+	done
+	log_info "sync: qq->dc files sent=$_sent"
+	[ $_sent -gt 0 ] && return 0 || return 1
+}
+
+# Forward QQ voice to DC (download, multipart POST)
+_sync_qq_record_to_dc() {
+	_raw="$1" _cid="$2" _sender="$3"
+	_segs="$(json_get "$_raw" segments 2>/dev/null)" || _segs=""
+	if [ -z "$_segs" ] || [ "$_segs" = "NOTFOUND" ]; then return 1; fi
+	_recs="$(printf '%s' "$_segs" | sed 's/},{"type"/\
+{"type"/g' | grep '"type":"record"')"
+	if [ -z "$_recs" ]; then return 1; fi
+	_sent=0
+	IFS='
+'
+	for _rec in $_recs; do
+		_url="$(printf '%s' "$_rec" | sed -n 's/.*"temp_url":"\([^"]*\)".*/\1/p')"
+		[ -z "$_url" ] && continue
+		_url="$(utf8_decode "$_url")"
+		_ts=$(date +%s)
+		_tmp="/tmp/img/sync-dc-qq-voice-$$-$_ts.amr"
+		http_get_file "$_url" "$_tmp" || { log_err "sync: qq->dc voice download FAIL"; rm -f "$_tmp"; continue; }
+		if _sync_dc_multipart "$_cid" "$_tmp" "qq-voice.amr" "audio/amr" "🐧 $_sender: [语音]"; then
+			_sent=$((_sent + 1)); log_info "sync: qq->dc voice OK"
+		else
+			log_err "sync: qq->dc voice FAIL: $_ERROR"
+		fi
+		rm -f "$_tmp"
+	done
+	log_info "sync: qq->dc voice sent=$_sent"
+	[ $_sent -gt 0 ] && return 0 || return 1
+}
+
+# Forward QQ video to DC (download, multipart POST)
+_sync_qq_video_to_dc() {
+	_raw="$1" _cid="$2" _sender="$3"
+	_segs="$(json_get "$_raw" segments 2>/dev/null)" || _segs=""
+	if [ -z "$_segs" ] || [ "$_segs" = "NOTFOUND" ]; then return 1; fi
+	_vids="$(printf '%s' "$_segs" | sed 's/},{"type"/\
+{"type"/g' | grep '"type":"video"')"
+	if [ -z "$_vids" ]; then return 1; fi
+	_sent=0
+	IFS='
+'
+	for _vid in $_vids; do
+		_url="$(printf '%s' "$_vid" | sed -n 's/.*"temp_url":"\([^"]*\)".*/\1/p')"
+		[ -z "$_url" ] && continue
+		_url="$(utf8_decode "$_url")"
+		_ts=$(date +%s)
+		_tmp="/tmp/img/sync-dc-qq-video-$$-$_ts"
+		http_get_file "$_url" "$_tmp" || { log_err "sync: qq->dc video download FAIL"; rm -f "$_tmp"; continue; }
+		if _sync_dc_multipart "$_cid" "$_tmp" "qq-video.mp4" "video/mp4" "🐧 $_sender: [视频]"; then
+			_sent=$((_sent + 1)); log_info "sync: qq->dc video OK"
+		else
+			log_err "sync: qq->dc video FAIL: $_ERROR"
+		fi
+		rm -f "$_tmp"
+	done
+	log_info "sync: qq->dc video sent=$_sent"
+	[ $_sent -gt 0 ] && return 0 || return 1
+}
+
 # Forward TG photo to QQ (download from TG via CF Worker, upload to QQ)

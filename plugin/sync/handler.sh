@@ -211,9 +211,25 @@ sync_handler() {
 			;;
 		discord)
 			if dc_message_create "$_tid" "$_dc_body" >/dev/null; then
-				log_info "sync: $_pf→dc OK"
+				log_info "sync: $_pf→dc text OK"
 			else
 				log_err "sync: $_pf→dc FAIL: $_ERROR"
+			fi
+			# Forward media (QQ→DC)
+			if [ "$_pf" = "qq" ]; then
+				_sync_qq_images_to_dc "$_raw" "$_tid" "$_sender"
+				_sync_qq_record_to_dc "$_raw" "$_tid" "$_sender"
+				_sync_qq_video_to_dc "$_raw" "$_tid" "$_sender"
+				_sync_qq_files_to_dc "$_raw" "$_tid" "$_sender" "${_sid#group/}"
+			fi
+			# Forward media (TG→DC)
+			if [ "$_pf" = "telegram" ]; then
+				_sync_tg_photo_to_dc "$_raw" "$_tid" "$_sender"
+				_sync_tg_sticker_to_dc "$_raw" "$_tid" "$_sender"
+				_sync_tg_animation_to_dc "$_raw" "$_tid" "$_sender"
+				_sync_tg_voice_to_dc "$_raw" "$_tid" "$_sender"
+				_sync_tg_video_to_dc "$_raw" "$_tid" "$_sender"
+				_sync_tg_document_to_dc "$_raw" "$_tid" "$_sender"
 			fi
 			;;
 		esac

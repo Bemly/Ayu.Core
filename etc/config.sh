@@ -19,6 +19,7 @@ TG_API_BASE="https://${TG_API_HOST}/bot${TG_TOKEN}"
 # ---- Discord ----
 DC_TOKEN="${DC_TOKEN:-}"
 DC_API_BASE="https://discord.com/api/v10"
+DC_BOT_ID="${DC_BOT_ID:-}"
 
 # ---- Bot server ----
 BOT_PORT="${BOT_PORT:-6160}"
