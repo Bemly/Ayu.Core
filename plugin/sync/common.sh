@@ -111,6 +111,8 @@ _sync_source_id() {
 		if [ -n "$_chat" ] && [ "$_chat" != "NOTFOUND" ]; then
 			_cid="$(json_get "$_chat" id 2>/dev/null)" || _cid=""
 			printf '%s' "$_cid"
+			_thr="$(json_get "$_raw" message_thread_id 2>/dev/null)" || _thr=""
+			[ -n "$_thr" ] && [ "$_thr" != "NOTFOUND" ] && printf '/%s' "$_thr"
 		fi
 		;;
 	esac
