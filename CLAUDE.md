@@ -234,6 +234,37 @@ telegram/-100111=qq/group/123456          # TG group → QQ group
 telegram/-100111=telegram/-100222/16553   # TG → TG forum topic
 ```
 
+### Discord Sync (2026-05-05)
+
+**QQ/TG → DC (real-time)**: `handler.sh` discord target case → `dc_message_create` for text, plus media forwarders in `from_qq.sh` (`_sync_qq_images_to_dc`, `_sync_qq_files_to_dc`, `_sync_qq_record_to_dc`, `_sync_qq_video_to_dc`) and `from_tg.sh` (`_sync_tg_photo_to_dc`, `_sync_tg_document_to_dc`, `_sync_tg_voice_to_dc`, `_sync_tg_video_to_dc`, `_sync_tg_sticker_to_dc`, `_sync_tg_animation_to_dc`). All media uploaded via `_sync_dc_multipart()` in `common.sh` (multipart/form-data with `payload_json` + `files[0]` parts).
+
+**DC → QQ/TG (daily batch)**: `cgi-bin/dc-sync.sh` triggered by cron → reads `etc/sync.conf` for `discord/` sources → `dc_message_list` fetches recent messages → filters by today's date → calls `sync_dc_message()` in `from_dc.sh` which forwards text to QQ/TG targets. Skips bot's own messages via `DC_BOT_ID`.
+
+**DC webhook**: `router.sh` now has `discord)` case → `adapter/discord/webhook.sh` → `dc_webhook_handler()` handles PING verification (type=1). Message events require Gateway (WebSocket), unsupported.
+
+**Discord multipart format** (different from TG):
+```
+--boundary
+Content-Disposition: form-data; name="payload_json"
+Content-Type: application/json
+{"content":"🐧 sender: [image]"}
+
+--boundary
+Content-Disposition: form-data; name="files[0]"; filename="img.png"
+Content-Type: image/png
+<binary>
+--boundary--
+```
+
+**Config**: `DC_TOKEN` (bot token), `DC_BOT_ID` (bot user ID for loop prevention), `DC_API_BASE="https://discord.com/api/v10"`.
+
+**Sync.conf format**:
+```
+qq/group/A=discord/ch123        # QQ→DC real-time
+telegram/X=discord/ch123        # TG→DC real-time
+discord/ch123=qq/group/A        # DC→QQ daily batch
+```
+
 ## HTTP Transport (nc + ssl_client)
 
 **Ayu.Core does NOT use wget.** All HTTP/HTTPS goes through `lib/http.sh` which uses raw TCP + TLS:

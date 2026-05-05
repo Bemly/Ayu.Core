@@ -23,7 +23,8 @@ Request flow:
 Ayu.Core/
 ├── cgi-bin/                # CGI scripts (busybox httpd hardcodes /cgi-bin/)
 │   ├── start.sh            # Launch httpd
-│   └── router.sh           # CGI entry (platform routing + token auth)
+│   ├── router.sh           # CGI entry (platform routing + token auth)
+│   └── dc-sync.sh          # Daily Discord message sync (cron → CGI)
 ├── lib/
 │   ├── core.sh             # _ERROR chain, die(), hush-json + hush-url bootstrap
 │   ├── http.sh             # HTTP/HTTPS via nc + ssl_client (GET/POST, retry, chunked decode)
@@ -33,9 +34,10 @@ Ayu.Core/
 ├── adapter/                # Platform adapters
 │   ├── qq/                 # QQ — 6 files, 15 segment types, 8 event types
 │   ├── telegram/           # Telegram — 17 files, 20 Update types, 18 content types
-│   └── discord/            # Discord — 17 files (REST only)
+│   └── discord/            # Discord — 18 files, 135 functions (REST + webhook)
 ├── plugin/                 # Business logic
 │   └── sync/               # Cross-platform sync: text, image, file, voice, video, sticker, reaction, recall
+├── webui/                  # Dashboard (Luolita SFC framework)
 ├── etc/                    # config.sh, rules, sync.conf, config.nas.sh (gitignored)
 └── test/                   # 141 tests, 0 failures (mock_http, no API keys)
 ```
@@ -75,6 +77,7 @@ TG_API_HOST="api.telegram.org"   # use a CF Worker for network accessibility
 TG_API_SECRET=""                 # X-Ayu-Token header for edge authentication
 
 DC_TOKEN=""
+DC_BOT_ID=""                     # Set to skip forwarding bot's own messages (loop prevention)
 
 BOT_PORT="6160"
 WEBHOOK_SECRET=""                # if set, require ?token=<secret> in webhook URL
@@ -109,7 +112,7 @@ dc_message_create "ch1" '{"content":"hello"}'
 ```
 /ping|qq/handler.sh|handler_ping
 /echo|qq/handler.sh|handler_echo
-*|../plugin/sync.sh|sync_handler
+*|../plugin/sync/handler.sh|sync_handler
 ```
 
 Rules are matched first-to-last. Commands match first; the `*` fallback forwards to cross-platform sync.
@@ -117,6 +120,36 @@ Rules are matched first-to-last. Commands match first; the `*` fallback forwards
 ## Cross-Platform Sync
 
 See [plugin/sync/README.md](plugin/sync/README.md) for full documentation.
+
+### Discord Sync
+
+| Direction | Method | Media | Trigger |
+|-----------|--------|-------|---------|
+| QQ → DC | Real-time | Text, image, file, voice, video | Webhook (instant) |
+| TG → DC | Real-time | Text, image, file, voice, video, sticker, GIF | Webhook (instant) |
+| DC → QQ | Daily batch | Text only (media planned) | Cron → `dc-sync.sh` |
+| DC → TG | Daily batch | Text only (media planned) | Cron → `dc-sync.sh` |
+
+**Why DC inbound is batch-only**: Discord message events require Gateway (WebSocket), which is not feasible in pure shell. Instead, `cgi-bin/dc-sync.sh` fetches messages via REST API (`GET /channels/{id}/messages`), filters by today's date, and forwards to configured targets.
+
+**Triggering DC sync**:
+```sh
+# Manual trigger (one-off)
+wget -q 'http://127.0.0.1:6160/cgi-bin/dc-sync.sh?token=xxx'
+
+# NAS crontab (daily at midnight UTC)
+0 0 * * * wget -q 'http://127.0.0.1:6160/cgi-bin/dc-sync.sh?token=xxx'
+```
+
+**sync.conf format:**
+```
+qq/group/1081590429=discord/ch123456           # QQ group → DC channel
+telegram/-100111=discord/ch123456              # TG group → DC channel
+discord/ch123456=qq/group/1081590429           # DC channel → QQ (daily batch)
+discord/ch123456=telegram/-100111              # DC channel → TG (daily batch)
+```
+
+**Loop prevention**: `👾` emoji prefix + bot sender ID check (`DC_BOT_ID` env var). DC→QQ/TG forwarding skips messages authored by the bot itself.
 
 ## Webhook Auth
 

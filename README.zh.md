@@ -23,7 +23,8 @@
 Ayu.Core/
 ├── cgi-bin/                # CGI 脚本 (busybox httpd 写死 /cgi-bin/)
 │   ├── start.sh            # 启动 httpd
-│   └── router.sh           # CGI 入口 (平台路由 + token 鉴权)
+│   ├── router.sh           # CGI 入口 (平台路由 + token 鉴权)
+│   └── dc-sync.sh          # 每日 Discord 消息同步 (cron → CGI)
 ├── lib/
 │   ├── core.sh             # _ERROR 链, die(), hush-json + hush-url 引导
 │   ├── http.sh             # HTTP/HTTPS via nc + ssl_client (GET/POST, 重试, chunked 解码)
@@ -33,9 +34,10 @@ Ayu.Core/
 ├── adapter/                # 平台适配器
 │   ├── qq/                 # QQ — 6 文件, 15 种 segment, 8 种事件
 │   ├── telegram/           # Telegram — 17 文件, 20 种 Update, 18 种内容类型
-│   └── discord/            # Discord — 17 文件 (仅 REST 出站)
+│   └── discord/            # Discord — 18 文件, 135 个函数 (REST + webhook)
 ├── plugin/                 # 业务插件
 │   └── sync/               # 跨平台消息同步: 文字/图片/文件/语音/视频/贴纸/表情反应/撤回
+├── webui/                  # Dashboard (Luolita SFC 框架)
 ├── etc/                    # config.sh, rules, sync.conf, config.nas.sh (gitignore)
 └── test/                   # 141 tests, 0 failures (mock_http, 无需 API key)
 ```
@@ -75,6 +77,7 @@ TG_API_HOST="api.telegram.org"   # 网络受限时用 CF Worker 中转
 TG_API_SECRET=""                 # 边缘认证用的 X-Ayu-Token 头部
 
 DC_TOKEN=""
+DC_BOT_ID=""                     # 设后跳过 bot 自己的消息 (防循环)
 
 BOT_PORT="6160"
 WEBHOOK_SECRET=""                # 设了就要 ?token=xxx，否则 403
@@ -109,7 +112,7 @@ dc_message_create "ch1" '{"content":"hello"}'
 ```
 /ping|qq/handler.sh|handler_ping
 /echo|qq/handler.sh|handler_echo
-*|../plugin/sync.sh|sync_handler
+*|../plugin/sync/handler.sh|sync_handler
 ```
 
 规则从上到下匹配。命令 handler 先命中，末尾的 `*` 交给同步插件转发。
@@ -117,6 +120,36 @@ dc_message_create "ch1" '{"content":"hello"}'
 ## 跨平台消息同步
 
 详见 [plugin/sync/README.zh.md](plugin/sync/README.zh.md)
+
+### Discord 同步
+
+| 方向 | 方式 | 支持媒体 | 触发 |
+|------|------|---------|------|
+| QQ → DC | 实时 | 文字、图片、文件、语音、视频 | Webhook（即时） |
+| TG → DC | 实时 | 文字、图片、文件、语音、视频、贴纸、GIF | Webhook（即时） |
+| DC → QQ | 每日批量 | 仅文字（媒体规划中） | cron → `dc-sync.sh` |
+| DC → TG | 每日批量 | 仅文字（媒体规划中） | cron → `dc-sync.sh` |
+
+**为什么 DC 出站是批量**：Discord 消息事件需要 Gateway (WebSocket)，纯 shell 无法实现。改用 REST API（`GET /channels/{id}/messages`）每日拉取，按当天日期过滤后转发。
+
+**触发 DC 同步**：
+```sh
+# 手动触发（一次性）
+wget -q 'http://127.0.0.1:6160/cgi-bin/dc-sync.sh?token=xxx'
+
+# NAS crontab（每天 UTC 0 点触发）
+0 0 * * * wget -q 'http://127.0.0.1:6160/cgi-bin/dc-sync.sh?token=xxx'
+```
+
+**sync.conf 格式**：
+```
+qq/group/1081590429=discord/ch123456           # QQ 群 → DC 频道
+telegram/-100111=discord/ch123456              # TG 群 → DC 频道
+discord/ch123456=qq/group/1081590429           # DC 频道 → QQ（每日批量）
+discord/ch123456=telegram/-100111              # DC 频道 → TG（每日批量）
+```
+
+**防循环**：`👾` emoji 前缀 + bot 发送者 ID 检测（`DC_BOT_ID` 环境变量）。DC→QQ/TG 转发时跳过 bot 自己的消息。
 
 ## Webhook 鉴权
 
