@@ -1,0 +1,197 @@
+coffee:
+  title = 'Ayu Dashboard'
+
+template:
+  .dashboard
+    header.header
+      .header-left
+        h1.logo= title
+      .header-right
+        span.status-dot
+        span.status-text Running
+
+    .layout
+      aside.sidebar
+        nav.sidebar-nav
+          .nav-item.active
+            .nav-icon &#9881;
+            span 概览
+          .nav-item
+            .nav-icon &#128172;
+            span 消息
+          .nav-item
+            .nav-icon &#128257;
+            span 同步
+          .nav-item
+            .nav-icon &#128196;
+            span 日志
+          .nav-item
+            .nav-icon &#9881;
+            span 设置
+
+      main.content
+        .card
+          .card-header 系统状态
+          .card-body
+            .stat-grid
+              .stat-item
+                .stat-label QQ 连接
+                .stat-value.online 在线
+              .stat-item
+                .stat-label Telegram 连接
+                .stat-value.online 在线
+              .stat-item
+                .stat-label Discord 连接
+                .stat-value.offline 离线
+              .stat-item
+                .stat-label 运行时间
+                .stat-value —
+
+        .card
+          .card-header 同步概览
+          .card-body
+            p — 等待后端数据 —
+
+    footer.footer
+      span Ayu.Core &middot; busybox:musl
+
+style:
+  :root
+    --bg: #0a0a0a
+    --bg-card: #111
+    --bg-sidebar: #0d0d0d
+    --border: #222
+    --text: #e5e5e5
+    --text-dim: #666
+    --green: #4ade80
+    --yellow: #facc15
+    --red: #f87171
+    --blue: #60a5fa
+
+  *
+    margin: 0
+    padding: 0
+    box-sizing: border-box
+
+  .dashboard
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif
+    font-size: 14px
+    color: var(--text)
+    background: var(--bg)
+    min-height: 100vh
+    display: flex
+    flex-direction: column
+
+  .header
+    display: flex
+    align-items: center
+    justify-content: space-between
+    height: 48px
+    padding: 0 16px
+    background: var(--bg-sidebar)
+    border-bottom: 1px solid var(--border)
+    flex-shrink: 0
+
+  .logo
+    font-size: 16px
+    font-weight: 700
+
+  .header-right
+    display: flex
+    align-items: center
+    gap: 8px
+    font-size: 12px
+    color: var(--text-dim)
+
+  .status-dot
+    width: 8px
+    height: 8px
+    border-radius: 50%
+    background: var(--green)
+
+  .layout
+    display: flex
+    flex: 1
+
+  .sidebar
+    width: 200px
+    background: var(--bg-sidebar)
+    border-right: 1px solid var(--border)
+    flex-shrink: 0
+    padding: 12px 0
+
+  .nav-item
+    display: flex
+    align-items: center
+    gap: 10px
+    padding: 8px 16px
+    color: var(--text-dim)
+    cursor: pointer
+    transition: background .15s, color .15s
+    font-size: 13px
+    &:hover
+      background: rgba(255, 255, 255, .03)
+      color: var(--text)
+    &.active
+      background: rgba(255, 255, 255, .06)
+      color: var(--text)
+
+  .nav-icon
+    font-size: 16px
+    width: 20px
+    text-align: center
+
+  .content
+    flex: 1
+    padding: 16px
+    overflow-y: auto
+
+  .card
+    background: var(--bg-card)
+    border: 1px solid var(--border)
+    border-radius: 8px
+    margin-bottom: 16px
+
+  .card-header
+    padding: 12px 16px
+    font-size: 13px
+    font-weight: 600
+    border-bottom: 1px solid var(--border)
+
+  .card-body
+    padding: 16px
+
+  .stat-grid
+    display: grid
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr))
+    gap: 12px
+
+  .stat-item
+    padding: 12px
+    background: rgba(255, 255, 255, .02)
+    border-radius: 6px
+
+  .stat-label
+    font-size: 12px
+    color: var(--text-dim)
+    margin-bottom: 4px
+
+  .stat-value
+    font-size: 18px
+    font-weight: 600
+    &.online
+      color: var(--green)
+    &.offline
+      color: var(--red)
+
+  p
+    color: var(--text-dim)
+    font-size: 13px
+
+  .footer
+    padding: 12px 16px
+    border-top: 1px solid var(--border)
+    text-align: center
+    font-size: 12px
+    color: var(--text-dim)
+    flex-shrink: 0
