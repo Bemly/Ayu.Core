@@ -48,39 +48,52 @@ _sync_get_sender() {
 	_pf="$1" _raw="$2"
 	case "$_pf" in
 	qq)
+		_nm=""
 		_gm="$(json_get "$_raw" group_member)"
 		if [ -n "$_gm" ] && [ "$_gm" != "NOTFOUND" ]; then
 			_nm="$(json_get "$_gm" nickname)"
-			[ -n "$_nm" ] && [ "$_nm" != "NOTFOUND" ] && { printf '%s' "$_nm"; return; }
-			_nm="$(json_get "$_gm" card)"
-			[ -n "$_nm" ] && [ "$_nm" != "NOTFOUND" ] && { printf '%s' "$_nm"; return; }
+			[ "$_nm" = "NOTFOUND" ] && _nm=""
+			[ -z "$_nm" ] && _nm="$(json_get "$_gm" card)"
+			[ "$_nm" = "NOTFOUND" ] && _nm=""
 		fi
-		_fr="$(json_get "$_raw" friend)"
-		if [ -n "$_fr" ] && [ "$_fr" != "NOTFOUND" ]; then
-			_nm="$(json_get "$_fr" nickname)"
-			[ -n "$_nm" ] && [ "$_nm" != "NOTFOUND" ] && { printf '%s' "$_nm"; return; }
+		if [ -z "$_nm" ]; then
+			_fr="$(json_get "$_raw" friend)"
+			if [ -n "$_fr" ] && [ "$_fr" != "NOTFOUND" ]; then
+				_nm="$(json_get "$_fr" nickname)"
+				[ "$_nm" = "NOTFOUND" ] && _nm=""
+			fi
 		fi
-		json_get "$_raw" sender_id
+		_sid="$(json_get "$_raw" sender_id 2>/dev/null)"
+		[ "$_sid" = "NOTFOUND" ] && _sid=""
+		[ -z "$_nm" ] && _nm="$_sid"
+		printf "%s(%s)" "$_nm" "$_sid"
 		;;
 	telegram)
+		_nm="" _id=""
 		_from="$(json_get "$_raw" from)"
 		if [ -n "$_from" ] && [ "$_from" != "NOTFOUND" ]; then
 			_fn="$(json_get "$_from" first_name)"
 			_ln="$(json_get "$_from" last_name)"
+			_un="$(json_get "$_from" username)"
+			_id="$(json_get "$_from" id 2>/dev/null)"
 			if [ -n "$_fn" ] && [ "$_fn" != "NOTFOUND" ]; then
 				if [ -n "$_ln" ] && [ "$_ln" != "NOTFOUND" ]; then
-					printf '%s %s' "$_fn" "$_ln"
+					_nm="$_fn $_ln"
 				else
-					printf '%s' "$_fn"
+					_nm="$_fn"
 				fi
-				return
+			elif [ -n "$_un" ] && [ "$_un" != "NOTFOUND" ]; then
+				_nm="@$_un"
 			fi
-			_un="$(json_get "$_from" username)"
-			[ -n "$_un" ] && [ "$_un" != "NOTFOUND" ] && { printf '@%s' "$_un"; return; }
 		fi
-		printf 'unknown'
+		[ -z "$_nm" ] && _nm="unknown"
+		if [ -n "$_un" ] && [ "$_un" != "NOTFOUND" ]; then
+			_id="@$_un"
+		fi
+		[ -z "$_id" ] && _id="$_id"
+		printf "%s(%s)" "$_nm" "$_id"
 		;;
-	*) printf 'unknown' ;;
+	*) printf "unknown" ;;
 	esac
 }
 
