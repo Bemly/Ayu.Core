@@ -50,6 +50,15 @@ qq/group/123456=telegram/-100111/16553      # QQ group → TG forum topic
 telegram/-100111=qq/group/123456            # TG group → QQ group
 ```
 
+Supports any number of mappings. Each line is read independently — one source message can be forwarded to multiple targets, and multiple sources can feed the same target. No practical limit on line count.
+
+```
+qq/group/A=telegram/X           # QQ group A → TG
+qq/group/B=telegram/X           # 2 QQ groups → same TG
+telegram/X=qq/group/A           # TG → QQ group A
+telegram/X=qq/group/B           # same TG → 2 QQ groups
+```
+
 **2. Enable** with the `*` rule in `etc/rules`:
 
 ```

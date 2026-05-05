@@ -50,6 +50,15 @@ qq/group/123456=telegram/-100111/16553      # QQ 群 → TG 论坛话题
 telegram/-100111=qq/group/123456            # TG 群 → QQ 群
 ```
 
+支持任意多行映射。每行独立解析——一条源消息可转发到多个目标，多个源也能指向同一个目标，行数无限制。
+
+```
+qq/group/A=telegram/X           # QQ 群 A → TG
+qq/group/B=telegram/X           # 2 个 QQ 群 → 同一个 TG
+telegram/X=qq/group/A           # TG → QQ 群 A
+telegram/X=qq/group/B           # 同一个 TG → 2 个 QQ 群
+```
+
 **2. 启用**: `etc/rules` 中的 `*` 规则：
 
 ```
