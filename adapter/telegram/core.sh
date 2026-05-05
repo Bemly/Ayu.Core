@@ -3,18 +3,21 @@
 
 . "$_HB/lib/http.sh"
 
+# Pre-compute URL-encoded auth header (CF WAF expects encoded value)
+_TG_AUTH="X-Ayu-Token: $(url_encode "${TG_API_SECRET}")"
+
 _tg_call() {
     _method="$1" _body="$2"
     if [ -n "${TG_API_SECRET:-}" ]; then
         http_post "${TG_API_BASE}/${_method}" "$_body" \
-            "Content-Type: application/json" \
-            "X-Ayu-Token: ${TG_API_SECRET}" || {
+            "$_CT_JSON" \
+            "$_TG_AUTH" || {
             _ERROR="tg.$_method: $_ERROR"
             return 1
         }
     else
         http_post "${TG_API_BASE}/${_method}" "$_body" \
-            "Content-Type: application/json" || {
+            "$_CT_JSON" || {
             _ERROR="tg.$_method: $_ERROR"
             return 1
         }

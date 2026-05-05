@@ -15,7 +15,7 @@ _sync_tg_photo_to_qq() {
 	_tmp="/tmp/img/sync-img-tg-$$-$_ts.${_fname##*.}"
 	_furi="file:///root/img/sync-img-tg-$$-$_ts.${_fname##*.}"
 	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
-	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || {
+	http_get_file "$_url" "$_tmp" "$_TG_AUTH" || {
 		log_err "sync: tg→qq download FAIL"; rm -f "$_tmp"; return 1
 	}
 	# Build image segment array → send via send_group_message
@@ -50,7 +50,7 @@ _sync_tg_sticker_to_qq() {
 	_tmp="/tmp/img/sync-sticker-tg-$$-$_ts.${_fname##*.}"
 	_furi="file:///root/img/sync-sticker-tg-$$-$_ts.${_fname##*.}"
 	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
-	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || {
+	http_get_file "$_url" "$_tmp" "$_TG_AUTH" || {
 		log_err "sync: tg→qq sticker download FAIL"; rm -f "$_tmp"; return 1
 	}
 	_sz=$(wc -c < "$_tmp" 2>/dev/null)
@@ -93,7 +93,7 @@ _sync_tg_animation_to_qq() {
 	_tmp="/tmp/img/sync-gif-tg-$$-$_ts.${_fname##*.}"
 	_furi="file:///root/img/sync-gif-tg-$$-$_ts.${_fname##*.}"
 	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
-	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || {
+	http_get_file "$_url" "$_tmp" "$_TG_AUTH" || {
 		log_err "sync: tg→qq animation download FAIL"; rm -f "$_tmp"; return 1
 	}
 		# Upload as file (TG converts GIF to MP4, QQ cannot display MP4 as image)
@@ -130,7 +130,7 @@ _sync_tg_document_to_qq() {
 	_tmp="/tmp/img/sync-file-tg-$$-$_ts$_ext"
 	_furi="file:///root/img/sync-file-tg-$$-$_ts$_ext"
 	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
-	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || {
+	http_get_file "$_url" "$_tmp" "$_TG_AUTH" || {
 		log_err "sync: tg→qq file download FAIL"; rm -f "$_tmp"; return 1
 	}
 	_errf="/tmp/qq-up-err.$$"
@@ -161,7 +161,7 @@ _sync_tg_voice_to_qq() {
 	_tmp="/tmp/img/sync-voice-tg-$$-$_ts.${_fname##*.}"
 	_furi="file:///root/img/sync-voice-tg-$$-$_ts.${_fname##*.}"
 	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
-	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || {
+	http_get_file "$_url" "$_tmp" "$_TG_AUTH" || {
 		log_err "sync: tg-qq voice download FAIL"; rm -f "$_tmp"; return 1
 	}
 	_rec_msg="[{\"type\":\"record\",\"data\":{\"uri\":\"$_furi\"}}]"
@@ -196,7 +196,7 @@ _sync_tg_audio_to_qq() {
 	_tmp="/tmp/img/sync-audio-tg-$$-$_ts.${_fname##*.}"
 	_furi="file:///root/img/sync-audio-tg-$$-$_ts.${_fname##*.}"
 	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
-	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || {
+	http_get_file "$_url" "$_tmp" "$_TG_AUTH" || {
 		log_err "sync: tg-qq audio download FAIL"; rm -f "$_tmp"; return 1
 	}
 	_fn="audio"
@@ -231,7 +231,7 @@ _sync_tg_video_to_qq() {
 	_tmp="/tmp/img/sync-video-tg-$$-$_ts.${_fname##*.}"
 	_furi="file:///root/img/sync-video-tg-$$-$_ts.${_fname##*.}"
 	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
-	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || {
+	http_get_file "$_url" "$_tmp" "$_TG_AUTH" || {
 		log_err "sync: tg-qq video download FAIL"; rm -f "$_tmp"; return 1
 	}
 	_vid_msg="[{\"type\":\"video\",\"data\":{\"uri\":\"$_furi\"}}]"
@@ -257,7 +257,7 @@ _sync_tg_photo_to_dc() {
 	_ts=$(date +%s)
 	_tmp="/tmp/img/sync-dc-tg-img-$$-$_ts"
 	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
-	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || { log_err "sync: tg->dc photo download FAIL"; rm -f "$_tmp"; return 1; }
+	http_get_file "$_url" "$_tmp" "$_TG_AUTH" || { log_err "sync: tg->dc photo download FAIL"; rm -f "$_tmp"; return 1; }
 	if _sync_dc_multipart "$_cid" "$_tmp" "$_fname" "image/jpeg" "✈️ $_sender: [图片]"; then
 		log_info "sync: tg->dc photo OK"; rm -f "$_tmp"; return 0
 	else
@@ -281,7 +281,7 @@ _sync_tg_document_to_dc() {
 	_ts=$(date +%s)
 	_tmp="/tmp/img/sync-dc-tg-doc-$$-$_ts"
 	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
-	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || { log_err "sync: tg->dc doc download FAIL"; rm -f "$_tmp"; return 1; }
+	http_get_file "$_url" "$_tmp" "$_TG_AUTH" || { log_err "sync: tg->dc doc download FAIL"; rm -f "$_tmp"; return 1; }
 	if _sync_dc_multipart "$_cid" "$_tmp" "$_fn" "application/octet-stream" "✈️ $_sender: [文件] $_fn"; then
 		log_info "sync: tg->dc doc OK"; rm -f "$_tmp"; return 0
 	else
@@ -303,7 +303,7 @@ _sync_tg_voice_to_dc() {
 	_ts=$(date +%s)
 	_tmp="/tmp/img/sync-dc-tg-voice-$$-$_ts"
 	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
-	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || { log_err "sync: tg->dc voice download FAIL"; rm -f "$_tmp"; return 1; }
+	http_get_file "$_url" "$_tmp" "$_TG_AUTH" || { log_err "sync: tg->dc voice download FAIL"; rm -f "$_tmp"; return 1; }
 	if _sync_dc_multipart "$_cid" "$_tmp" "voice.ogg" "audio/ogg" "✈️ $_sender: [语音]"; then
 		log_info "sync: tg->dc voice OK"; rm -f "$_tmp"; return 0
 	else
@@ -325,7 +325,7 @@ _sync_tg_video_to_dc() {
 	_ts=$(date +%s)
 	_tmp="/tmp/img/sync-dc-tg-video-$$-$_ts"
 	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
-	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || { log_err "sync: tg->dc video download FAIL"; rm -f "$_tmp"; return 1; }
+	http_get_file "$_url" "$_tmp" "$_TG_AUTH" || { log_err "sync: tg->dc video download FAIL"; rm -f "$_tmp"; return 1; }
 	if _sync_dc_multipart "$_cid" "$_tmp" "video.mp4" "video/mp4" "✈️ $_sender: [视频]"; then
 		log_info "sync: tg->dc video OK"; rm -f "$_tmp"; return 0
 	else
@@ -350,7 +350,7 @@ _sync_tg_sticker_to_dc() {
 	_ext="${_path##*.}"
 	_tmp="/tmp/img/sync-dc-tg-sticker-$$-$_ts.$_ext"
 	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
-	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || { log_err "sync: tg->dc sticker download FAIL"; rm -f "$_tmp"; return 1; }
+	http_get_file "$_url" "$_tmp" "$_TG_AUTH" || { log_err "sync: tg->dc sticker download FAIL"; rm -f "$_tmp"; return 1; }
 	if [ "$_vid" = "true" ] || [ "$_ani" = "true" ]; then
 		_cap="✈️ $_sender: [贴纸-视频]"
 		_mime="video/webm"
@@ -379,7 +379,7 @@ _sync_tg_animation_to_dc() {
 	_ts=$(date +%s)
 	_tmp="/tmp/img/sync-dc-tg-anim-$$-$_ts"
 	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
-	http_get_file "$_url" "$_tmp" "X-Ayu-Token: ${TG_API_SECRET}" || { log_err "sync: tg->dc anim download FAIL"; rm -f "$_tmp"; return 1; }
+	http_get_file "$_url" "$_tmp" "$_TG_AUTH" || { log_err "sync: tg->dc anim download FAIL"; rm -f "$_tmp"; return 1; }
 	if _sync_dc_multipart "$_cid" "$_tmp" "animation.mp4" "video/mp4" "✈️ $_sender: [GIF]"; then
 		log_info "sync: tg->dc anim OK"; rm -f "$_tmp"; return 0
 	else

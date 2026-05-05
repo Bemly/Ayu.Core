@@ -5,6 +5,7 @@
 _HTTP_STATUS=""
 _HTTP_RETRY="${_HTTP_RETRY:-2}"
 _HTTP_TIMEOUT="${_HTTP_TIMEOUT:-10}"
+_CT_JSON="Content-Type: application/json"
 
 # ---- mock support (set by test/mock/mock_http.sh) ----
 # MOCK_HTTP=1 → short-circuit, return MOCK_RESPONSE or fail

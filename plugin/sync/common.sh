@@ -184,7 +184,7 @@ _sync_tg_multipart() {
 	_url="${TG_API_BASE}/sendPhoto"
 	if http_post_file "$_url" "$_tmp" \
 		"Content-Type: multipart/form-data; boundary=$_bound" \
-		"X-Ayu-Token: ${TG_API_SECRET}" >/dev/null; then
+		"$_TG_AUTH" >/dev/null; then
 		rm -f "$_tmp"; return 0
 	else
 		rm -f "$_tmp"; return 1

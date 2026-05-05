@@ -54,7 +54,7 @@ _sync_qq_images_to_tg() {
 			_url="${TG_API_BASE}/sendAnimation"
 			if http_post_file "$_url" "$_mtmp" \
 				"Content-Type: multipart/form-data; boundary=$_bound" \
-				"X-Ayu-Token: ${TG_API_SECRET}" >/dev/null; then
+				"$_TG_AUTH" >/dev/null; then
 				_sent=$((_sent + 1)); log_info "sync: qq→tg GIF OK"
 			else
 				log_err "sync: qq→tg GIF FAIL: $_ERROR"
@@ -133,7 +133,7 @@ _sync_qq_files_to_tg() {
 		_url="${TG_API_BASE}/sendDocument"
 		if http_post_file "$_url" "$_mtmp" \
 			"Content-Type: multipart/form-data; boundary=$_bound" \
-			"X-Ayu-Token: ${TG_API_SECRET}" >/dev/null; then
+			"$_TG_AUTH" >/dev/null; then
 			_sent=$((_sent + 1)); log_info "sync: qq→tg file OK"
 		else
 			log_err "sync: qq→tg file FAIL: $_ERROR"
@@ -183,7 +183,7 @@ _sync_qq_record_to_tg() {
 		_url="${TG_API_BASE}/sendVoice"
 		if http_post_file "$_url" "$_mtmp" \
 			"Content-Type: multipart/form-data; boundary=$_bound" \
-			"X-Ayu-Token: ${TG_API_SECRET}" >/dev/null; then
+			"$_TG_AUTH" >/dev/null; then
 			_sent=$((_sent + 1)); log_info "sync: qq-tg voice OK"
 		else
 			log_err "sync: qq-tg voice FAIL: $_ERROR"
@@ -231,7 +231,7 @@ _sync_qq_video_to_tg() {
 		_url="${TG_API_BASE}/sendVideo"
 		if http_post_file "$_url" "$_mtmp" \
 			"Content-Type: multipart/form-data; boundary=$_bound" \
-			"X-Ayu-Token: ${TG_API_SECRET}" >/dev/null; then
+			"$_TG_AUTH" >/dev/null; then
 			_sent=$((_sent + 1)); log_info "sync: qq-tg video OK"
 		else
 			log_err "sync: qq-tg video FAIL: $_ERROR"
