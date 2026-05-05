@@ -116,6 +116,18 @@ dc_message_create "ch1" '{"content":"hello"}'
 
 规则从上到下匹配。命令 handler 先命中，末尾的 `*` 交给同步插件转发。
 
+## 插件系统
+
+详见 [etc/README.md](etc/README.md) — handler 签名、注册文件、适配器 API 参考。
+
+### 注册文件：
+
+| 文件 | 用途 | 格式 |
+|------|------|------|
+| `etc/rules` | 消息路由（实时） | `<pattern>\|<script>\|<func>` |
+| `etc/crontab` | 定时任务（crond） | `<cron expr>\|<script>\|<func>` |
+| `etc/sync.conf` | 跨平台同步映射 | `<src>=<tgt>` |
+
 ## 跨平台消息同步
 
 详见 [plugin/sync/README.zh.md](plugin/sync/README.zh.md)

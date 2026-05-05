@@ -116,6 +116,18 @@ dc_message_create "ch1" '{"content":"hello"}'
 
 Rules are matched first-to-last. Commands match first; the `*` fallback forwards to cross-platform sync.
 
+## Plugin System
+
+See [etc/README.md](etc/README.md) for the framework plugin API — handler signatures, registration files, available adapter functions.
+
+### Registration files:
+
+| File | Purpose | Format |
+|------|---------|--------|
+| `etc/rules` | Message routing (real-time) | `<pattern>\|<script>\|<func>` |
+| `etc/crontab` | Scheduled tasks (crond) | `<cron expr>\|<script>\|<func>` |
+| `etc/sync.conf` | Cross-platform sync mapping | `<src>=<tgt>` |
+
 ## Cross-Platform Sync
 
 See [plugin/sync/README.md](plugin/sync/README.md) for full documentation.
