@@ -3,6 +3,11 @@
 
 . "$_HB/lib/http.sh"
 
+# Pre-compute auth headers (CF WAF expects URL-encoded X-Ayu-Token)
+if [ -n "${TG_API_SECRET:-}" ]; then
+	_DC_AYU_AUTH="X-Ayu-Token: $(url_encode "${TG_API_SECRET}")"
+fi
+
 _dc_auth() {
     printf 'Authorization: Bot %s' "$DC_TOKEN"
 }
@@ -13,7 +18,8 @@ _dc_get() {
     _out="/tmp/dc-out.$$"
     http_get "${DC_API_BASE}${_path}" \
         "$_CT_JSON" \
-        "$(_dc_auth)" >"$_out" || {
+        "$(_dc_auth)" \
+        "${_DC_AYU_AUTH:-}" >"$_out" || {
         _ERROR="dc.GET $_path: $_ERROR"
         rm -f "$_out"
         return 1
@@ -28,7 +34,8 @@ _dc_api() {
     _out="/tmp/dc-out.$$"
     http_post "${DC_API_BASE}${_p}" "$_body" \
         "$_CT_JSON" \
-        "$(_dc_auth)" >"$_out" || {
+        "$(_dc_auth)" \
+        "${_DC_AYU_AUTH:-}" >"$_out" || {
         _ERROR="dc.$_m $_p: $_ERROR"
         rm -f "$_out"
         return 1
@@ -44,7 +51,8 @@ _dc_void() {
     _out="/tmp/dc-out.$$"
     http_post "${DC_API_BASE}${_p}" "$_body" \
         "$_CT_JSON" \
-        "$(_dc_auth)" >"$_out" || {
+        "$(_dc_auth)" \
+        "${_DC_AYU_AUTH:-}" >"$_out" || {
         _ERROR="dc.$_m $_p: $_ERROR"
         rm -f "$_out"
         return 1
