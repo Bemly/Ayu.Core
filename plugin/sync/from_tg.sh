@@ -74,7 +74,7 @@ _sync_tg_document_to_qq() {
 	_fn="$(json_get "$_doc" file_name 2>/dev/null)" || _fn="file"
 	_fn="$(utf8_decode "$_fn")"
 	_fsz="$(json_get "$_doc" file_size 2>/dev/null)" || _fsz=""
-	if [ -n "$_fsz" ] && [ "$_fsz" != "NOTFOUND" ] && [ "$_fsz" -gt 20000000 ] 2>/dev/null; then
+	if [ -n "$_fsz" ] && [ "$_fsz" != "NOTFOUND" ] && [ "$_fsz" -gt $_SYNC_MAX_FILE_SIZE ] 2>/dev/null; then
 		log_info "sync: tg-qq file skip too big ($_fsz bytes)"; return 0
 	fi
 	_tg_download_file "$_fid" "file" "tg-qq file" || { log_err "sync: $_ERROR"; return 1; }
@@ -114,7 +114,7 @@ _sync_tg_audio_to_qq() {
 	_title="$(json_get "$_audio" title 2>/dev/null)" || _title=""
 	[ "$_title" = "NOTFOUND" ] && _title=""
 	_fsz="$(json_get "$_audio" file_size 2>/dev/null)" || _fsz=""
-	if [ -n "$_fsz" ] && [ "$_fsz" != "NOTFOUND" ] && [ "$_fsz" -gt 20000000 ] 2>/dev/null; then
+	if [ -n "$_fsz" ] && [ "$_fsz" != "NOTFOUND" ] && [ "$_fsz" -gt $_SYNC_MAX_FILE_SIZE ] 2>/dev/null; then
 		log_info "sync: tg-qq audio skip too big ($_fsz bytes)"; return 0
 	fi
 	_tg_download_file "$_fid" "audio" "tg-qq audio" || { log_err "sync: $_ERROR"; return 1; }
@@ -135,7 +135,7 @@ _sync_tg_video_to_qq() {
 	_fid="$(json_get "$_video" file_id 2>/dev/null)" || _fid=""
 	if [ -z "$_fid" ] || [ "$_fid" = "NOTFOUND" ]; then return 1; fi
 	_fsz="$(json_get "$_video" file_size 2>/dev/null)" || _fsz=""
-	if [ -n "$_fsz" ] && [ "$_fsz" != "NOTFOUND" ] && [ "$_fsz" -gt 20000000 ] 2>/dev/null; then
+	if [ -n "$_fsz" ] && [ "$_fsz" != "NOTFOUND" ] && [ "$_fsz" -gt $_SYNC_MAX_FILE_SIZE ] 2>/dev/null; then
 		log_info "sync: tg-qq video skip too big ($_fsz bytes)"; return 0
 	fi
 	_tg_download_file "$_fid" "video" "tg-qq video" || { log_err "sync: $_ERROR"; return 1; }

@@ -15,7 +15,7 @@ sync_handler() {
 	# TG reaction → QQ: lookup mapping and apply reaction
 	if [ "$_evt" = "reaction" ] && [ "$_pf" = "telegram" ]; then
 		_tcid="$3" _tmid="$4" _rdata="$5"
-		_map="/test/var/state/msg-map/$_tcid/$_tmid"
+		_map="$_STATE_DIR/msg-map/$_tcid/$_tmid"
 		if [ -f "$_map" ]; then
 			read -r _gid _rseq < "$_map"
 			_new="$(json_get "$_rdata" new_reaction 2>/dev/null)" || _new=""
@@ -39,7 +39,7 @@ sync_handler() {
 		_gid="$(json_get "$_raw" peer_id 2>/dev/null)" || _gid=""
 		_seq="$(json_get "$_raw" message_seq 2>/dev/null)" || _seq=""
 		if [ -n "$_gid" ] && [ -n "$_seq" ] && [ "$_gid" != "NOTFOUND" ] && [ "$_seq" != "NOTFOUND" ]; then
-			_map="/test/var/state/msg-map-rev/$_gid/$_seq"
+			_map="$_STATE_DIR/msg-map-rev/$_gid/$_seq"
 			if [ -f "$_map" ]; then
 				while read -r _tpf_val _tid1 _tid2; do
 				if [ -z "$_tid2" ]; then
@@ -55,7 +55,7 @@ sync_handler() {
 					else
 						log_err "sync: recall qq->$_tpf_val FAIL: $_ERROR"
 					fi
-					rm -f "/test/var/state/msg-map/$_tid1/$_tid2" 2>/dev/null
+					rm -f "$_STATE_DIR/msg-map/$_tid1/$_tid2" 2>/dev/null
 				done < "$_map"
 				rm -f "$_map"
 			else
@@ -141,14 +141,14 @@ sync_handler() {
 					_tmid="$(json_get "$_resp" message_id 2>/dev/null)" || _tmid=""
 					_rseq="$(json_get "$_raw" message_seq 2>/dev/null)" || _rseq=""
 					if [ -n "$_tmid" ] && [ -n "$_rseq" ]; then
-						mkdir -p "/test/var/state/msg-map/$_tcid" && chmod 777 "/test/var/state/msg-map/$_tcid" 2>/dev/null
-						chmod 777 "/test/var/state/msg-map/$_tcid" 2>/dev/null
-						echo "${_sid#group/} $_rseq" > "/test/var/state/msg-map/$_tcid/$_tmid"
-						chmod 666 "/test/var/state/msg-map/$_tcid/$_tmid" 2>/dev/null
-						mkdir -p "/test/var/state/msg-map-rev/${_sid#group/}" && chmod 777 "/test/var/state/msg-map-rev/${_sid#group/}" 2>/dev/null
-						chmod 777 "/test/var/state/msg-map-rev/${_sid#group/}" 2>/dev/null
-						echo "telegram $_tcid $_tmid" >> "/test/var/state/msg-map-rev/${_sid#group/}/$_rseq"
-						chmod 666 "/test/var/state/msg-map-rev/${_sid#group/}/$_rseq" 2>/dev/null
+						mkdir -p "$_STATE_DIR/msg-map/$_tcid" && chmod 777 "$_STATE_DIR/msg-map/$_tcid" 2>/dev/null
+						chmod 777 "$_STATE_DIR/msg-map/$_tcid" 2>/dev/null
+						echo "${_sid#group/} $_rseq" > "$_STATE_DIR/msg-map/$_tcid/$_tmid"
+						chmod 666 "$_STATE_DIR/msg-map/$_tcid/$_tmid" 2>/dev/null
+						mkdir -p "$_STATE_DIR/msg-map-rev/${_sid#group/}" && chmod 777 "$_STATE_DIR/msg-map-rev/${_sid#group/}" 2>/dev/null
+						chmod 777 "$_STATE_DIR/msg-map-rev/${_sid#group/}" 2>/dev/null
+						echo "telegram $_tcid $_tmid" >> "$_STATE_DIR/msg-map-rev/${_sid#group/}/$_rseq"
+						chmod 666 "$_STATE_DIR/msg-map-rev/${_sid#group/}/$_rseq" 2>/dev/null
 					fi
 					log_info "sync: $_pf→tg OK"
 				else
@@ -174,24 +174,13 @@ sync_handler() {
 					_tchat="$(json_get "$_raw" chat 2>/dev/null)" || _tchat=""
 					_tcid="$(json_get "$_tchat" id 2>/dev/null)" || _tcid=""
 					if [ -n "$_tmid" ] && [ -n "$_rseq" ] && [ -n "$_tcid" ]; then
-						mkdir -p "/test/var/state/msg-map-rev/$_gid"
-						chmod 777 "/test/var/state/msg-map-rev/$_gid" 2>/dev/null
-						echo "telegram $_tcid $_tmid" >> "/test/var/state/msg-map-rev/$_gid/$_rseq"
-						mkdir -p "/test/var/state/msg-map/$_tcid"
-						chmod 777 "/test/var/state/msg-map/$_tcid" 2>/dev/null
-						echo "$_gid $_rseq" > "/test/var/state/msg-map/$_tcid/$_tmid"
-						chmod 666 "/test/var/state/msg-map/$_tcid/$_tmid" 2>/dev/null
-					fi
-					log_info "sync: $_pf→qq group $_gid OK"
-						mkdir -p "/test/var/state/msg-map-rev/$_gid"
-						chmod 777 "/test/var/state/msg-map-rev/$_gid" 2>/dev/null
-						echo "telegram $_tcid $_tmid" >> "/test/var/state/msg-map-rev/$_gid/$_rseq"
-					_tcid="$(json_get "$_tchat" id 2>/dev/null)" || _tcid=""
-					if [ -n "$_tmid" ] && [ -n "$_rseq" ] && [ -n "$_tcid" ]; then
-						mkdir -p "/test/var/state/msg-map/$_tcid"
-						chmod 777 "/test/var/state/msg-map/$_tcid" 2>/dev/null
-						echo "$_gid $_rseq" > "/test/var/state/msg-map/$_tcid/$_tmid"
-						chmod 666 "/test/var/state/msg-map/$_tcid/$_tmid" 2>/dev/null
+						mkdir -p "$_STATE_DIR/msg-map-rev/$_gid"
+						chmod 777 "$_STATE_DIR/msg-map-rev/$_gid" 2>/dev/null
+						echo "telegram $_tcid $_tmid" >> "$_STATE_DIR/msg-map-rev/$_gid/$_rseq"
+						mkdir -p "$_STATE_DIR/msg-map/$_tcid"
+						chmod 777 "$_STATE_DIR/msg-map/$_tcid" 2>/dev/null
+						echo "$_gid $_rseq" > "$_STATE_DIR/msg-map/$_tcid/$_tmid"
+						chmod 666 "$_STATE_DIR/msg-map/$_tcid/$_tmid" 2>/dev/null
 					fi
 					log_info "sync: $_pf→qq group $_gid OK"
 				else
@@ -225,12 +214,12 @@ sync_handler() {
 				_dmid="$(json_get "$_dc_resp" id 2>/dev/null)" || _dmid=""
 				_rseq="$(json_get "$_raw" message_seq 2>/dev/null)" || _rseq=""
 				if [ -n "$_dmid" ] && [ -n "$_rseq" ] && [ "$_dmid" != "NOTFOUND" ] && [ "$_rseq" != "NOTFOUND" ]; then
-					mkdir -p "/test/var/state/msg-map/$_tid" && chmod 777 "/test/var/state/msg-map/$_tid" 2>/dev/null
-					echo "${_sid#group/} $_rseq" > "/test/var/state/msg-map/$_tid/$_dmid"
-					chmod 666 "/test/var/state/msg-map/$_tid/$_dmid" 2>/dev/null
-					mkdir -p "/test/var/state/msg-map-rev/${_sid#group/}" && chmod 777 "/test/var/state/msg-map-rev/${_sid#group/}" 2>/dev/null
-					echo "discord $_tid $_dmid" >> "/test/var/state/msg-map-rev/${_sid#group/}/$_rseq"
-					chmod 666 "/test/var/state/msg-map-rev/${_sid#group/}/$_rseq" 2>/dev/null
+					mkdir -p "$_STATE_DIR/msg-map/$_tid" && chmod 777 "$_STATE_DIR/msg-map/$_tid" 2>/dev/null
+					echo "${_sid#group/} $_rseq" > "$_STATE_DIR/msg-map/$_tid/$_dmid"
+					chmod 666 "$_STATE_DIR/msg-map/$_tid/$_dmid" 2>/dev/null
+					mkdir -p "$_STATE_DIR/msg-map-rev/${_sid#group/}" && chmod 777 "$_STATE_DIR/msg-map-rev/${_sid#group/}" 2>/dev/null
+					echo "discord $_tid $_dmid" >> "$_STATE_DIR/msg-map-rev/${_sid#group/}/$_rseq"
+					chmod 666 "$_STATE_DIR/msg-map-rev/${_sid#group/}/$_rseq" 2>/dev/null
 				fi
 			else
 				log_err "sync: $_pf→dc FAIL: $_ERROR"

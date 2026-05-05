@@ -12,6 +12,8 @@
 . "$_HB/adapter/telegram/file.sh"
 . "$_HB/adapter/discord/message.sh"
 
+	_SYNC_MAX_FILE_SIZE="${_SYNC_MAX_FILE_SIZE:-20000000}"
+
 # Extract sender display name from platform-specific raw JSON
 # _reaction_code <json_escaped_emoji> -> decimal Unicode codepoint
 # NOTE: surrogate pair logic mirrors utf8_decode in lib/url.sh — same hex parsing, different output
