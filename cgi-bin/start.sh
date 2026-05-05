@@ -27,8 +27,10 @@ if [ -f "$_cron_tab" ]; then
 	> "$_cron_file"
 	while IFS='|' read -r _time _sc _fn _; do
 		case "$_time" in \#*|"") continue ;; esac
-		printf '%s sh %s/adapter/%s %s\n' \
-			"$_time" "$_HB" "$_sc" "$_fn" >> "$_cron_file"
+		# Resolve script path relative to adapter/ (same convention as etc/rules)
+		_sc_path="$_HB/adapter/$_sc"
+		printf '%s sh -c ". %s && %s"\n' \
+			"$_time" "$_sc_path" "$_fn" >> "$_cron_file"
 	done < "$_cron_tab"
 	crond -l 5 &
 	log_info "crond: started with $(wc -l < "$_cron_file") job(s)"
