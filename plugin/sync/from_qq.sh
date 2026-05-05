@@ -26,32 +26,12 @@ _sync_qq_images_to_tg() {
 		_magic="$(dd if="$_tmp" bs=3 count=1 2>/dev/null)"
 		log_debug "sync: img url=[$_url] magic=[$_magic] sz=$(wc -c <"$_tmp" 2>/dev/null)"
 		if [ "$_magic" = "GIF" ]; then
-			# GIF → sendAnimation (upload via multipart)
-			_bound="ayu-$$-$_ts"
-			_mtmp="/tmp/tg-gif-up-$$"
-			> "$_mtmp"
-			printf '--%s\r\n' "$_bound" >> "$_mtmp"
-			printf 'Content-Disposition: form-data; name="chat_id"\r\n\r\n' >> "$_mtmp"
-			printf '%s\r\n' "$_tcid" >> "$_mtmp"
-			if [ -n "$_tthr" ]; then
-				printf '--%s\r\n' "$_bound" >> "$_mtmp"
-				printf 'Content-Disposition: form-data; name="message_thread_id"\r\n\r\n' >> "$_mtmp"
-				printf '%s\r\n' "$_tthr" >> "$_mtmp"
-			fi
-			printf '--%s\r\n' "$_bound" >> "$_mtmp"
-			printf 'Content-Disposition: form-data; name="animation"; filename="qq-gif.gif"\r\n' >> "$_mtmp"
-			printf 'Content-Type: image/gif\r\n\r\n' >> "$_mtmp"
-			cat "$_tmp" >> "$_mtmp"
-			printf '\r\n--%s--\r\n' "$_bound" >> "$_mtmp"
-			_url="${TG_API_BASE}/sendAnimation"
-			if http_post_file "$_url" "$_mtmp" \
-				"Content-Type: multipart/form-data; boundary=$_bound" \
-				"$_TG_AUTH" >/dev/null; then
+			if _sync_tg_multipart "$_tcid" "$_tthr" "$_tmp" "qq-gif.gif" "sendAnimation" "animation" "image/gif"; then
 				_sent=$((_sent + 1)); log_info "sync: qq→tg GIF OK"
 			else
 				log_err "sync: qq→tg GIF FAIL: $_ERROR"
 			fi
-			rm -f "$_mtmp"
+			rm -f "$_tmp"
 		else
 			# Static image → sendPhoto with URL
 			rm -f "$_tmp"
@@ -100,33 +80,12 @@ _sync_qq_files_to_tg() {
 		http_get_file "$_url" "$_ltmp" || {
 			log_err "sync: qq→tg file download FAIL"; rm -f "$_ltmp"; continue
 		}
-		# Multipart upload to TG via sendDocument
-		_bound="ayu-$$-$_ts"
-		_mtmp="/tmp/tg-up-$$"
-		> "$_mtmp"
-		printf '--%s\r\n' "$_bound" >> "$_mtmp"
-		printf 'Content-Disposition: form-data; name="chat_id"\r\n\r\n' >> "$_mtmp"
-		printf '%s\r\n' "$_tcid" >> "$_mtmp"
-		if [ -n "$_tthr" ]; then
-			printf '--%s\r\n' "$_bound" >> "$_mtmp"
-			printf 'Content-Disposition: form-data; name="message_thread_id"\r\n\r\n' >> "$_mtmp"
-			printf '%s\r\n' "$_tthr" >> "$_mtmp"
-		fi
-		printf '--%s\r\n' "$_bound" >> "$_mtmp"
-		printf 'Content-Disposition: form-data; name="document"; filename="%s"\r\n' "$_fn" >> "$_mtmp"
-		printf 'Content-Type: application/octet-stream\r\n\r\n' >> "$_mtmp"
-		cat "$_ltmp" >> "$_mtmp"
-		printf '\r\n' >> "$_mtmp"
-		printf '--%s--\r\n' "$_bound" >> "$_mtmp"
-		_url="${TG_API_BASE}/sendDocument"
-		if http_post_file "$_url" "$_mtmp" \
-			"Content-Type: multipart/form-data; boundary=$_bound" \
-			"$_TG_AUTH" >/dev/null; then
+		if _sync_tg_multipart "$_tcid" "$_tthr" "$_ltmp" "$_fn" "sendDocument" "document"; then
 			_sent=$((_sent + 1)); log_info "sync: qq→tg file OK"
 		else
 			log_err "sync: qq→tg file FAIL: $_ERROR"
 		fi
-		rm -f "$_ltmp" "$_mtmp"
+		rm -f "$_ltmp"
 	done
 	log_info "sync: qq→tg files sent=$_sent"
 	[ $_sent -gt 0 ] && return 0 || return 1
@@ -146,33 +105,12 @@ _sync_qq_record_to_tg() {
 		_ts=$(date +%s)
 		_tmp="/tmp/img/sync-voice-qq-$$-$_ts.amr"
 		http_get_file "$_url" "$_tmp" || { log_err "sync: voice download FAIL"; rm -f "$_tmp"; continue; }
-		_bound="ayu-$$-$_ts"
-		_mtmp="/tmp/tg-voice-up-$$"
-		> "$_mtmp"
-		printf '--%s\r\n' "$_bound" >> "$_mtmp"
-		printf 'Content-Disposition: form-data; name="chat_id"\r\n\r\n' >> "$_mtmp"
-		printf '%s\r\n' "$_tcid" >> "$_mtmp"
-		if [ -n "$_tthr" ]; then
-			printf '--%s\r\n' "$_bound" >> "$_mtmp"
-			printf 'Content-Disposition: form-data; name="message_thread_id"\r\n\r\n' >> "$_mtmp"
-			printf '%s\r\n' "$_tthr" >> "$_mtmp"
-		fi
-		printf '--%s\r\n' "$_bound" >> "$_mtmp"
-		printf 'Content-Disposition: form-data; name="voice"; filename="qq-voice.amr"\r\n' >> "$_mtmp"
-		printf 'Content-Type: audio/amr\r\n\r\n' >> "$_mtmp"
-		cat "$_tmp" >> "$_mtmp"
-		printf '\r\n' >> "$_mtmp"
-		[ -n "$_dur" ] && printf '--%s\r\nContent-Disposition: form-data; name="duration"\r\n\r\n%s\r\n' "$_bound" "$_dur" >> "$_mtmp"
-		printf '--%s--\r\n' "$_bound" >> "$_mtmp"
-		_url="${TG_API_BASE}/sendVoice"
-		if http_post_file "$_url" "$_mtmp" \
-			"Content-Type: multipart/form-data; boundary=$_bound" \
-			"$_TG_AUTH" >/dev/null; then
+		if _sync_tg_multipart "$_tcid" "$_tthr" "$_tmp" "qq-voice.amr" "sendVoice" "voice" "audio/amr" "" "$_dur"; then
 			_sent=$((_sent + 1)); log_info "sync: qq-tg voice OK"
 		else
 			log_err "sync: qq-tg voice FAIL: $_ERROR"
 		fi
-		rm -f "$_tmp" "$_mtmp"
+		rm -f "$_tmp"	rm -f "$_tmp" "$_mtmp"
 	done
 	log_info "sync: qq-tg voice sent=$_sent"
 	[ $_sent -gt 0 ] && return 0 || return 1
@@ -192,31 +130,12 @@ _sync_qq_video_to_tg() {
 		_ts=$(date +%s)
 		_tmp="/tmp/img/sync-video-qq-$$-$_ts"
 		http_get_file "$_url" "$_tmp" || { log_err "sync: video download FAIL"; rm -f "$_tmp"; continue; }
-		_bound="ayu-$$-$_ts"
-		_mtmp="/tmp/tg-video-up-$$"
-		> "$_mtmp"
-		printf '--%s\r\n' "$_bound" >> "$_mtmp"
-		printf 'Content-Disposition: form-data; name="chat_id"\r\n\r\n' >> "$_mtmp"
-		printf '%s\r\n' "$_tcid" >> "$_mtmp"
-		if [ -n "$_tthr" ]; then
-			printf '--%s\r\n' "$_bound" >> "$_mtmp"
-			printf 'Content-Disposition: form-data; name="message_thread_id"\r\n\r\n' >> "$_mtmp"
-			printf '%s\r\n' "$_tthr" >> "$_mtmp"
-		fi
-		printf '--%s\r\n' "$_bound" >> "$_mtmp"
-		printf 'Content-Disposition: form-data; name="video"; filename="qq-video.mp4"\r\n' >> "$_mtmp"
-		printf 'Content-Type: video/mp4\r\n\r\n' >> "$_mtmp"
-		cat "$_tmp" >> "$_mtmp"
-		printf '\r\n--%s--\r\n' "$_bound" >> "$_mtmp"
-		_url="${TG_API_BASE}/sendVideo"
-		if http_post_file "$_url" "$_mtmp" \
-			"Content-Type: multipart/form-data; boundary=$_bound" \
-			"$_TG_AUTH" >/dev/null; then
+		if _sync_tg_multipart "$_tcid" "$_tthr" "$_tmp" "qq-video.mp4" "sendVideo" "video" "video/mp4"; then
 			_sent=$((_sent + 1)); log_info "sync: qq-tg video OK"
 		else
 			log_err "sync: qq-tg video FAIL: $_ERROR"
 		fi
-		rm -f "$_tmp" "$_mtmp"
+		rm -f "$_tmp"
 	done
 	log_info "sync: qq-tg video sent=$_sent"
 	[ $_sent -gt 0 ] && return 0 || return 1
