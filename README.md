@@ -1,10 +1,10 @@
-# Ayu.Core
+![# Ayu.Core](https://socialify.git.ci/Bemly/Ayu.Core/image?description=1&font=Raleway&language=1&logo=https%3A%2F%2Fraw.githubusercontent.com%2FBemly%2FAyu.Core%2Frefs%2Fheads%2Fmain%2Fwebui%2Flogo.jpg&name=1&owner=1&pattern=Diagonal+Stripes&theme=Dark)
 
-> [中文文档](README.zh.md)
+[![test](https://github.com/Bemly/Ayu.Core/actions/workflows/test.yml/badge.svg)](https://github.com/Bemly/Ayu.Core/actions/workflows/test.yml)
 
 Pure shell SNS Bot framework. Runs in busybox:musl container, hush + httpd CGI + raw TLS transport + [hush-json](https://github.com/Bemly/hush-json).
 
-[![test](https://github.com/Bemly/Ayu.Core/actions/workflows/test.yml/badge.svg)](https://github.com/Bemly/Ayu.Core/actions/workflows/test.yml)
+> [中文文档](README.zh.md)
 
 ## Adapter Coverage
 
