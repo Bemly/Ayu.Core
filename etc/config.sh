@@ -2,7 +2,7 @@
 # Source after core.sh
 
 # ---- QQ (Lagrange.Milky) ----
-QQ_HOST="${QQ_HOST:-127.0.0.1}"
+QQ_HOST="${QQ_HOST:-host.docker.internal}"
 QQ_PORT="${QQ_PORT:-616}"
 QQ_PREFIX="${QQ_PREFIX:-/}"
 QQ_TOKEN="${QQ_TOKEN:-}"
