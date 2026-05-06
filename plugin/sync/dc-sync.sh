@@ -76,9 +76,9 @@ dc_batch_run() {
 		log_info "dc-sync: _len=$_len _after=$_after"
 		_newest=""
 
-		_i=0
-		while [ $_i -lt $_len ]; do
-			_msg="$(json_arr_at "$_dcresp" "$_i" 2>/dev/null)" || { log_info "dc-sync: arr_at FAIL _i=$_i"; _i=$((_i + 1)); continue; }
+		_i=$((_len - 1))
+		while [ $_i -ge 0 ]; do
+			_msg="$(json_arr_at "$_dcresp" "$_i" 2>/dev/null)" || { log_info "dc-sync: arr_at FAIL _i=$_i"; _i=$((_i - 1)); continue; }
 			_total=$((_total + 1))
 			_mid="$(json_get "$_msg" id 2>/dev/null)" || _mid=""
 
@@ -92,13 +92,13 @@ dc_batch_run() {
 			# Skip already-processed messages (id <= cursor)
 			if [ -n "$_after" ] && [ -n "$_mid" ] && [ "$_mid" != "NOTFOUND" ] && [ "$_mid" -le "$_after" ] 2>/dev/null; then
 				[ $_total -le 5 ] && log_info "dc-sync: SKIP _i=$_i _mid=$_mid _after=$_after"
-				_i=$((_i + 1)); continue
+				_i=$((_i - 1)); continue
 			fi
 
 			[ $_total -le 5 ] && log_info "dc-sync: FWD _i=$_i _mid=$_mid _after=$_after _newest=$_newest"
 			sync_dc_message "$_msg" "$_cid"
 			_fwd=$((_fwd + 1))
-			_i=$((_i + 1))
+			_i=$((_i - 1))
 		done
 
         # Update cursor: never go backwards (max of old cursor and newest seen)
