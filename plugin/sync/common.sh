@@ -14,6 +14,33 @@
 
 	_SYNC_MAX_FILE_SIZE="${_SYNC_MAX_FILE_SIZE:-20000000}"
 
+# _emoji_url_encode <json_escaped_or_raw_emoji> -> URL-encoded UTF-8 (%XX%XX...)
+# Used for Discord reaction API (emoji in URL path must be URL-encoded)
+_emoji_url_encode() {
+	_enc="$(printf '%s' "$1" | awk '
+	match($0, /\\u[Dd][89ABab][0-9A-Fa-f][0-9A-Fa-f]\\u[Dd][C-Fc-f][0-9A-Fa-f][0-9A-Fa-f]/) {
+		h1 = substr($0, 3, 4); lo = substr($0, 9, 4)
+		cp = 0x10000 + (("0x"h1) - 0xD800) * 0x400 + (("0x"lo) - 0xDC00)
+		_utf8hex(cp); exit
+	}
+	match($0, /\\u[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]/) {
+		h = substr($0, 3, 4)
+		_utf8hex("0x"h); exit
+	}
+	function _utf8hex(cp) {
+		if (cp < 0x80) { printf "%%%02X", cp; return }
+		if (cp < 0x800) { printf "%%%02X%%%02X", 0xC0+(cp/64), 0x80+(cp%64); return }
+		if (cp < 0x10000) { printf "%%%02X%%%02X%%%02X", 0xE0+(cp/4096), 0x80+((cp/64)%64), 0x80+(cp%64); return }
+		printf "%%%02X%%%02X%%%02X%%%02X", 0xF0+(cp/262144), 0x80+((cp/4096)%64), 0x80+((cp/64)%64), 0x80+(cp%64)
+	}
+	')"
+	if [ -n "$_enc" ]; then
+		printf '%s' "$_enc"
+	else
+		printf '%s' "$1" | od -An -tx1 | awk '{for(i=1;i<=NF;i++) printf "%%%s", toupper($i)}'
+	fi
+}
+
 # Extract sender display name from platform-specific raw JSON
 # _reaction_code <json_escaped_emoji> -> decimal Unicode codepoint
 # NOTE: surrogate pair logic mirrors utf8_decode in lib/url.sh — same hex parsing, different output

@@ -12,21 +12,74 @@
 sync_handler() {
 	_pf="$1" _evt="$2" _uid="$3" _txt="$4" _raw="$5"
 
-	# TG reaction → QQ: lookup mapping and apply reaction
+	# TG reaction → QQ/DC: lookup mappings and apply reaction
 	if [ "$_evt" = "reaction" ] && [ "$_pf" = "telegram" ]; then
 		_tcid="$3" _tmid="$4" _rdata="$5"
-		_map="$_STATE_DIR/msg-map/$_tcid/$_tmid"
-		if [ -f "$_map" ]; then
-			read -r _gid _rseq < "$_map"
-			_new="$(json_get "$_rdata" new_reaction 2>/dev/null)" || _new=""
+
+		# --- new_reaction (add) ---
+		_new="$(json_get "$_rdata" new_reaction 2>/dev/null)" || _new=""
+		if [ -n "$_new" ] && [ "$_new" != "NOTFOUND" ]; then
 			_emojis="$(printf '%s' "$_new" | grep -o '"emoji":"[^"]*"' | sed 's/"emoji":"//g;s/"//g')"
-			for _emoji in $_emojis; do
-				_code="$(_reaction_code "$_emoji")"
-				qq_group_send_reaction "$_gid" "$_rseq" "$_code" true
-				log_info "sync: tg_reaction->qq $_emoji(${_code}) gid=$_gid seq=$_rseq"
-			done
-		else
-			log_debug "sync: reaction no map $_tcid/$_tmid"
+
+			# TG → QQ
+			_map="$_STATE_DIR/msg-map/$_tcid/$_tmid"
+			if [ -f "$_map" ]; then
+				read -r _gid _rseq < "$_map"
+				for _emoji in $_emojis; do
+					_code="$(_reaction_code "$_emoji")"
+					qq_group_send_reaction "$_gid" "$_rseq" "$_code" true
+					log_info "sync: tg_reaction->qq $_emoji(${_code}) gid=$_gid seq=$_rseq"
+				done
+			else
+				log_debug "sync: reaction no qq-map $_tcid/$_tmid"
+			fi
+
+			# TG → DC
+			_rev_map="$_STATE_DIR/msg-map-rev/$_tcid/$_tmid"
+			if [ -f "$_rev_map" ]; then
+				while read -r _tpf _dc_cid _dc_mid; do
+					if [ "$_tpf" = "discord" ] && [ -n "$_dc_mid" ]; then
+						for _emoji in $_emojis; do
+							_enc="$(_emoji_url_encode "$_emoji")"
+							dc_reaction_add "$_dc_cid" "$_dc_mid" "$_enc" >/dev/null 2>/dev/null \
+								&& log_info "sync: tg_reaction->dc $_emoji(${_enc}) cid=$_dc_cid mid=$_dc_mid" \
+								|| log_err "sync: tg_reaction->dc FAIL: $_ERROR"
+						done
+					fi
+				done < "$_rev_map"
+			fi
+		fi
+
+		# --- old_reaction (remove) ---
+		_old="$(json_get "$_rdata" old_reaction 2>/dev/null)" || _old=""
+		if [ -n "$_old" ] && [ "$_old" != "NOTFOUND" ]; then
+			_old_emojis="$(printf '%s' "$_old" | grep -o '"emoji":"[^"]*"' | sed 's/"emoji":"//g;s/"//g')"
+
+			# TG → QQ remove
+			_map="$_STATE_DIR/msg-map/$_tcid/$_tmid"
+			if [ -f "$_map" ]; then
+				read -r _gid _rseq < "$_map"
+				for _emoji in $_old_emojis; do
+					_code="$(_reaction_code "$_emoji")"
+					qq_group_send_reaction "$_gid" "$_rseq" "$_code" false
+					log_info "sync: tg_reaction_rm->qq $_emoji(${_code}) gid=$_gid seq=$_rseq"
+				done
+			fi
+
+			# TG → DC remove
+			_rev_map="$_STATE_DIR/msg-map-rev/$_tcid/$_tmid"
+			if [ -f "$_rev_map" ]; then
+				while read -r _tpf _dc_cid _dc_mid; do
+					if [ "$_tpf" = "discord" ] && [ -n "$_dc_mid" ]; then
+						for _emoji in $_old_emojis; do
+							_enc="$(_emoji_url_encode "$_emoji")"
+							dc_reaction_delete "$_dc_cid" "$_dc_mid" "$_enc" >/dev/null 2>/dev/null \
+								&& log_info "sync: tg_reaction_rm->dc $_emoji(${_enc}) cid=$_dc_cid mid=$_dc_mid" \
+								|| log_err "sync: tg_reaction_rm->dc FAIL: $_ERROR"
+						done
+					fi
+				done < "$_rev_map"
+			fi
 		fi
 		return 0
 	fi
