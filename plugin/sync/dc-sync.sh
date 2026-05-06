@@ -81,7 +81,7 @@ dc_batch_run() {
 			_total=$((_total + 1))
 			_mid="$(json_get "$_msg" id 2>/dev/null)" || _mid=""
 
-			# Track newest ID for cursor update (numeric cmp — Discord snowflakes fit in 64-bit)
+		# Track newest ID for cursor update (numeric cmp — Discord snowflakes fit in 64-bit)
 			if [ -n "$_mid" ] && [ "$_mid" != "NOTFOUND" ]; then
 				if [ -z "$_newest" ] || [ "$_mid" -gt "$_newest" ] 2>/dev/null; then
 					_newest="$_mid"
