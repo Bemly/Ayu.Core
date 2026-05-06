@@ -71,26 +71,31 @@ dc_batch_run() {
 		rm -f "$_tmp"
 		if [ -z "$_resp" ] || [ "$_resp" = "NOTFOUND" ] || [ "$_resp" = "[]" ]; then continue; fi
 
-		_msgs="$(printf '%s' "$_resp" | sed 's/^{"id":"/\n{"id":"/g' | sed 's/^\[//;s/\]$//' | grep -v '^$')"
+		# Use hush-json array iteration (not sed split — id is not first field)
+		_len="$(json_arr_len "$_resp" 2>/dev/null)" || { log_err "dc-sync: json_arr_len FAIL $_cid"; continue; }
 		_newest=""
-		_processed=false
 
-		for _msg in $_msgs; do
-			[ -z "$_msg" ] && continue
+		_i=0
+		while [ $_i -lt $_len ]; do
+			_msg="$(json_arr_at "$_resp" "$_i" 2>/dev/null)" || { _i=$((_i + 1)); continue; }
 			_total=$((_total + 1))
 			_mid="$(json_get "$_msg" id 2>/dev/null)" || _mid=""
 
-            # Save newest ID for cursor update
+			# Track newest ID for cursor update (numeric cmp — Discord snowflakes fit in 64-bit)
 			if [ -n "$_mid" ] && [ "$_mid" != "NOTFOUND" ]; then
-				_newest="$_mid"
+				if [ -z "$_newest" ] || [ "$_mid" -gt "$_newest" ] 2>/dev/null; then
+					_newest="$_mid"
+				fi
 			fi
 
-            # Skip already-processed messages (before cursor)
-			[ "$_processed" = "false" ] && [ -n "$_after" ] && [ "$_mid" = "$_after" ] && _processed=true && continue
-			[ "$_processed" = "false" ] && [ -n "$_after" ] && continue
+			# Skip already-processed messages (id <= cursor)
+			if [ -n "$_after" ] && [ -n "$_mid" ] && [ "$_mid" != "NOTFOUND" ] && [ "$_mid" -le "$_after" ] 2>/dev/null; then
+				_i=$((_i + 1)); continue
+			fi
 
 			sync_dc_message "$_msg" "$_cid"
 			_fwd=$((_fwd + 1))
+			_i=$((_i + 1))
 		done
 
         # Update cursor: first run → newest; subsequent → actual last processed
