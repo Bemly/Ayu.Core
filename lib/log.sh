@@ -12,13 +12,13 @@ mkdir -p "$_LOG_DIR" 2>/dev/null
 
 # _log <level_int> <level_str> <msg>
 _log() {
-    _lv="$1" _tag="$2"
-    if [ "$_lv" -ge "$_LOG_LEVEL" ]; then
-        _ts="$(date +%Y-%m-%dT%H:%M:%S)"
-        _line="[$_ts] $_tag $3"
-        printf '%s\n' "$_line" >> "$_LOG_FILE"
-        printf '%s\n' "$_line" >&2
-    fi
+	_lv="$1" _tag="$2"
+	if [ "$_lv" -ge "$_LOG_LEVEL" ]; then
+		_ts="$(date +%Y-%m-%dT%H:%M:%S)"
+		_line="[$_ts] $_tag $3"
+		printf '%s\n' "$_line" >> "$_LOG_FILE"
+		printf '%s\n' "$_line" >&2
+	fi
 }
 
 log_trace()  { _log 0 TRACE "$@"; }
@@ -27,9 +27,9 @@ log_info()   { _log 1 INFO  "$@"; }
 log_warn()   { _log 2 WARN  "$@"; }
 
 log_err() {
-    _ts="$(date +%Y-%m-%dT%H:%M:%S)"
-    _line="[$_ts] ERROR $*"
-    printf '%s\n' "$_line" >> "$_LOG_FILE"
-    printf '%s\n' "$_line" >> "$_ERROR_FILE"
-    printf '%s\n' "$_line" >&2
+	_ts="$(date +%Y-%m-%dT%H:%M:%S)"
+	_line="[$_ts] ERROR $*"
+	printf '%s\n' "$_line" >> "$_LOG_FILE"
+	printf '%s\n' "$_line" >> "$_ERROR_FILE"
+	printf '%s\n' "$_line" >&2
 }

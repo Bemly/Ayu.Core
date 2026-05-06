@@ -3,13 +3,13 @@
 . "$_HB/adapter/discord/core.sh"
 
 dc_webhook_execute() {
-    _url="https://discord.com/api/webhooks/$1/$2"
-    _body="$(json_obj "content" "$3")"
-    [ -n "${4:-}" ] && _body="$(printf '%s' "$_body" | sed 's/}$/,"username":"'"$4"'"/}')"
-    http_post "$_url" "$_body" "$_CT_JSON" "${_DC_AYU_AUTH:-}" || {
-        _ERROR="dc.webhook_execute: $_ERROR"
-        return 1
-    }
+	_url="https://discord.com/api/webhooks/$1/$2"
+	_body="$(json_obj "content" "$3")"
+	[ -n "${4:-}" ] && _body="$(printf '%s' "$_body" | sed 's/}$/,"username":"'"$4"'"/}')"
+	http_post "$_url" "$_body" "$_CT_JSON" "${_DC_AYU_AUTH:-}" || {
+		_ERROR="dc.webhook_execute: $_ERROR"
+		return 1
+	}
 }
 
 dc_webhook_get()              { _dc_get "/webhooks/$1"; }
