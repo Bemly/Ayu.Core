@@ -67,18 +67,18 @@ dc_batch_run() {
 		_dc_get "$_ep" > "$_tmp" 2>/dev/null || {
 			log_err "dc-sync: list FAIL $_cid: $_ERROR"; rm -f "$_tmp"; continue
 		}
-		_resp="$(cat "$_tmp" 2>/dev/null)"
+		_dcresp="$(cat "$_tmp" 2>/dev/null)"
 		rm -f "$_tmp"
-		if [ -z "$_resp" ] || [ "$_resp" = "NOTFOUND" ] || [ "$_resp" = "[]" ]; then continue; fi
+		if [ -z "$_dcresp" ] || [ "$_dcresp" = "NOTFOUND" ] || [ "$_dcresp" = "[]" ]; then continue; fi
 
 		# Use hush-json array iteration (not sed split — id is not first field)
-		_len="$(json_arr_len "$_resp" 2>/dev/null)" || { log_err "dc-sync: json_arr_len FAIL $_cid"; continue; }
+		_len="$(json_arr_len "$_dcresp" 2>/dev/null)" || { log_err "dc-sync: json_arr_len FAIL $_cid"; continue; }
 		log_info "dc-sync: _len=$_len _after=$_after"
 		_newest=""
 
 		_i=0
 		while [ $_i -lt $_len ]; do
-			_msg="$(json_arr_at "$_resp" "$_i" 2>/dev/null)" || { log_info "dc-sync: arr_at FAIL _i=$_i"; _i=$((_i + 1)); continue; }
+			_msg="$(json_arr_at "$_dcresp" "$_i" 2>/dev/null)" || { log_info "dc-sync: arr_at FAIL _i=$_i"; _i=$((_i + 1)); continue; }
 			_total=$((_total + 1))
 			_mid="$(json_get "$_msg" id 2>/dev/null)" || _mid=""
 
