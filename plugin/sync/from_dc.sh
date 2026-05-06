@@ -9,9 +9,22 @@ _sync_dc_text_to_qq() {
     _sender="$(utf8_decode "$_sender")"
     _text="👾 $_sender: $_txt"
     _segs="$(qq_text_segments "$_text")"
-    if qq_message_send_group "$_gid" "$_segs" >/dev/null; then
-        log_info "sync: dc->qq OK"
+    _resp_file="/tmp/dc-qq-resp-$$"
+    if qq_message_send_group "$_gid" "$_segs" > "$_resp_file" 2>/dev/null; then
+        _resp="$(cat "$_resp_file" 2>/dev/null)"; rm -f "$_resp_file"
+        _seq="$(json_get "$_resp" message_seq 2>/dev/null)" || _seq=""
+        _mid="$(json_get "$_raw" id 2>/dev/null)" || _mid=""
+        if [ -n "$_seq" ] && [ -n "$_mid" ] && [ "$_seq" != "NOTFOUND" ] && [ "$_mid" != "NOTFOUND" ]; then
+            mkdir -p "$_STATE_DIR/msg-map/$_gid" && chmod 777 "$_STATE_DIR/msg-map/$_gid" 2>/dev/null
+            printf '%s' "$_mid" > "$_STATE_DIR/msg-map/$_gid/$_seq"
+            chmod 666 "$_STATE_DIR/msg-map/$_gid/$_seq" 2>/dev/null
+            mkdir -p "$_STATE_DIR/msg-map-rev/discord" && chmod 777 "$_STATE_DIR/msg-map-rev/discord" 2>/dev/null
+            printf '%s qq/group/%s %s\n' "$_mid" "$_gid" "$_seq" >> "$_STATE_DIR/msg-map-rev/discord/$_mid"
+            chmod 666 "$_STATE_DIR/msg-map-rev/discord/$_mid" 2>/dev/null
+        fi
+        log_info "sync: dc->qq OK seq=$_seq"
     else
+        rm -f "$_resp_file"
         log_err "sync: dc->qq FAIL: $_ERROR"
     fi
 }
@@ -33,7 +46,24 @@ _sync_dc_text_to_tg() {
     else
         _body="$(json_obj "chat_id" "$_chat" "text" "$_text")"
     fi
-    _tg_api "sendMessage" "$_body" "sync.dc" >/dev/null 2>/dev/null || log_err "sync: dc->tg FAIL: $_ERROR"
+    _resp_file="/tmp/dc-tg-resp-$$"
+    if _tg_api "sendMessage" "$_body" "sync.dc" > "$_resp_file" 2>/dev/null; then
+        _resp="$(cat "$_resp_file" 2>/dev/null)"; rm -f "$_resp_file"
+        _tmid="$(json_get "$_resp" message_id 2>/dev/null)" || _tmid=""
+        _mid="$(json_get "$_raw" id 2>/dev/null)" || _mid=""
+        if [ -n "$_tmid" ] && [ -n "$_mid" ] && [ "$_tmid" != "NOTFOUND" ] && [ "$_mid" != "NOTFOUND" ]; then
+            mkdir -p "$_STATE_DIR/msg-map/$_chat" && chmod 777 "$_STATE_DIR/msg-map/$_chat" 2>/dev/null
+            printf '%s' "$_mid" > "$_STATE_DIR/msg-map/$_chat/$_tmid"
+            chmod 666 "$_STATE_DIR/msg-map/$_chat/$_tmid" 2>/dev/null
+            mkdir -p "$_STATE_DIR/msg-map-rev/discord" && chmod 777 "$_STATE_DIR/msg-map-rev/discord" 2>/dev/null
+            printf '%s telegram/%s/%s %s\n' "$_mid" "$_chat" "${_tmid}" "$_tmid" >> "$_STATE_DIR/msg-map-rev/discord/$_mid"
+            chmod 666 "$_STATE_DIR/msg-map-rev/discord/$_mid" 2>/dev/null
+        fi
+        log_info "sync: dc->tg OK msgid=$_tmid"
+    else
+        rm -f "$_resp_file"
+        log_err "sync: dc->tg FAIL: $_ERROR"
+    fi
 }
 
 # Forward DC attachments to QQ (download -> QQ segment/file upload)
