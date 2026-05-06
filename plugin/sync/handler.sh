@@ -213,7 +213,11 @@ sync_handler() {
 			if [ -n "$_dc_resp" ] && [ "$_dc_resp" != "NOTFOUND" ]; then
 				log_info "sync: $_pf→dc text OK"
 				_dmid="$(json_get "$_dc_resp" id 2>/dev/null)" || _dmid=""
-				_rseq="$(json_get "$_raw" message_seq 2>/dev/null)" || _rseq=""
+				if [ "$_pf" = "telegram" ]; then
+					_rseq="$(json_get "$_raw" message_id 2>/dev/null)" || _rseq=""
+				else
+					_rseq="$(json_get "$_raw" message_seq 2>/dev/null)" || _rseq=""
+				fi
 				if [ -n "$_dmid" ] && [ -n "$_rseq" ] && [ "$_dmid" != "NOTFOUND" ] && [ "$_rseq" != "NOTFOUND" ]; then
 					mkdir -p "$_STATE_DIR/msg-map/$_tid" && chmod 777 "$_STATE_DIR/msg-map/$_tid" 2>/dev/null
 					echo "${_sid#group/} $_rseq" > "$_STATE_DIR/msg-map/$_tid/$_dmid"
