@@ -42,10 +42,10 @@ sync_handler() {
 			# New format: QQ msg -> DC ID (DC->QQ forward)
 			_fwd_map="$_STATE_DIR/msg-map/$_gid/$_seq"
 			if [ -f "$_fwd_map" ]; then
-				_dec_mid="$(cat "$_fwd_map" 2>/dev/null)"
+				read -r _dec_mid _dec_cid < "$_fwd_map" 2>/dev/null
 				rm -f "$_fwd_map"
 				if [ -n "$_dec_mid" ] && [ "$_dec_mid" != "NOTFOUND" ]; then
-					dc_message_delete "$_dec_mid" >/dev/null 2>/dev/null && log_info "sync: recall qq->dc OK $_dec_mid"
+					dc_message_delete "${_dec_cid:-}" "$_dec_mid" >/dev/null 2>/dev/null && log_info "sync: recall qq->dc OK $_dec_mid"
 					_dc_rev="$_STATE_DIR/msg-map-rev/discord/$_dec_mid"
 					if [ -f "$_dc_rev" ]; then
 						while read -r _d_tgt _d_chat _d_mid; do

@@ -14,9 +14,10 @@ _sync_dc_text_to_qq() {
 		_resp="$(cat "$_resp_file" 2>/dev/null)"; rm -f "$_resp_file"
 		_seq="$(json_get "$_resp" message_seq 2>/dev/null)" || _seq=""
 		_mid="$(json_get "$_raw" id 2>/dev/null)" || _mid=""
+		_cid="$(json_get "$_raw" channel_id 2>/dev/null)" || _cid=""
 		if [ -n "$_seq" ] && [ -n "$_mid" ] && [ "$_seq" != "NOTFOUND" ] && [ "$_mid" != "NOTFOUND" ]; then
 			mkdir -p "$_STATE_DIR/msg-map/$_gid" && chmod 777 "$_STATE_DIR/msg-map/$_gid" 2>/dev/null
-			printf '%s' "$_mid" > "$_STATE_DIR/msg-map/$_gid/$_seq"
+			printf '%s %s' "$_mid" "$_cid" > "$_STATE_DIR/msg-map/$_gid/$_seq"
 			chmod 666 "$_STATE_DIR/msg-map/$_gid/$_seq" 2>/dev/null
 			mkdir -p "$_STATE_DIR/msg-map-rev/discord" && chmod 777 "$_STATE_DIR/msg-map-rev/discord" 2>/dev/null
 			printf '%s qq/group/%s %s\n' "$_mid" "$_gid" "$_seq" >> "$_STATE_DIR/msg-map-rev/discord/$_mid"
