@@ -77,6 +77,7 @@ sync_handler() {
 	esac
 
 	# Decode \uXXXX to UTF-8, then normalize \n (TG/DC can't render)
+		_txt="$(utf8_decode "$_txt")"
 		_txt_safe="$(printf '%s' "$_txt" | sed 's/\\n/ /g')"
 		# Decode \uXXXX to UTF-8
 	_txt="$(utf8_decode "$_txt")"
