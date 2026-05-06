@@ -10,7 +10,7 @@ All code runs inside **busybox:musl** (1.37.0) Docker container via OrbStack. No
 
 ```sh
 docker cp script.sh busybox-musl:/tmp/ && docker exec busybox-musl sh /tmp/script.sh
-docker run --rm -v $(pwd):/test busybox:musl sh /test/test/run.sh
+docker run --rm -v $(pwd):/ayu busybox:musl sh /ayu/test/run.sh
 ```
 
 ## Repo Structure
@@ -98,7 +98,7 @@ sudo docker exec Ayu wget -q -O- -T 5 \
 # Expected: {"ok":true,"result":{...}}
 
 # 5. Sync config exists
-sudo docker exec Ayu cat /test/etc/sync.conf
+sudo docker exec Ayu cat /ayu/etc/sync.conf
 ```
 
 **All checks must pass before considering deployment complete.**
@@ -112,7 +112,7 @@ sudo docker exec Ayu cat /test/etc/sync.conf
 ```sh
 # 1. Edit files locally
 # 2. Test in local Docker
-docker run --rm -v $(pwd):/test busybox:musl hush /test/test/run.sh
+docker run --rm -v $(pwd):/ayu busybox:musl hush /ayu/test/run.sh
 # 3. Only after 0 failures, deploy to NAS
 sshpass -p '...' scp file.sh fnOS:/tmp/ && \
   ssh fnOS 'sudo cp /tmp/file.sh /vol1/1000/Ayu/path/file.sh && sudo chmod +x /vol1/1000/Ayu/path/file.sh'
@@ -136,15 +136,15 @@ The Ayu container MUST be created with:
 docker run -d --name Ayu \
   --add-host host.docker.internal:host-gateway \
   -p 6160:6160 \
-  -v /vol1/1000/Ayu:/test \
+  -v /vol1/1000/Ayu:/ayu \
   -v /vol1/1000/Lagrange/img:/tmp/img \
-  busybox:musl sh /test/cgi-bin/start.sh
+  busybox:musl sh /ayu/cgi-bin/start.sh
 ```
 
 **Critical requirements:**
-- `sh /test/cgi-bin/start.sh` as entrypoint (NOT `sleep infinity`) — httpd runs as pid 1, `docker logs Ayu` captures all bot activity via stderr
+- `sh /ayu/cgi-bin/start.sh` as entrypoint (NOT `sleep infinity`) — httpd runs as pid 1, `docker logs Ayu` captures all bot activity via stderr
 - **BOTH volume mounts are required:**
-  - `/vol1/1000/Ayu:/test` — code and config
+  - `/vol1/1000/Ayu:/ayu` — code and config
   - `/vol1/1000/Lagrange/img:/tmp/img` — shared with Lagrange for QQ↔TG image/file transfers. **Without this, ALL QQ CDN downloads fail** because sync.sh writes to `/tmp/img/sync-*`
 
 **Why:** Missing `/tmp/img` mount causes silent download failures — wrapper writes to non-existent directory, file is never created, 3 retries exhaust → fallback degrades to URL-only mode (no GIF detection, no file forwarding). See 2026-05-04 incident.
@@ -171,7 +171,7 @@ The `plugin/sync.sh` handler forwards messages between QQ and Telegram bidirecti
 
 ### Reaction (TG→QQ)
 
-TG `message_reaction` update → lookup msg-map file at `/test/var/state/msg-map/{chat_id}/{message_id}` → extract `group_id message_seq` → `qq_group_send_reaction` with Unicode codepoint (decimal) as type=2 code. Emoji codepoint derived via `_reaction_code()` which handles JSON-escaped `\uXXXX` (including surrogate pairs) and raw UTF-8 via `od`.
+TG `message_reaction` update → lookup msg-map file at `/ayu/var/state/msg-map/{chat_id}/{message_id}` → extract `group_id message_seq` → `qq_group_send_reaction` with Unicode codepoint (decimal) as type=2 code. Emoji codepoint derived via `_reaction_code()` which handles JSON-escaped `\uXXXX` (including surrogate pairs) and raw UTF-8 via `od`.
 
 ### Image (bidirectional)
 
@@ -211,7 +211,7 @@ Text forwarded with sender attribution prefix (🐧 for QQ, ✈️ for TG) and l
 
 ### Recall / Delete (QQ→TG only)
 
-QQ `message_recall` event → extract `peer_id` + `message_seq` → lookup reverse map at `/test/var/state/msg-map-rev/{qq_gid}/{qq_seq}` → `tg_deleteMessage`. Both forward and reverse maps are cleaned up after deletion.
+QQ `message_recall` event → extract `peer_id` + `message_seq` → lookup reverse map at `/ayu/var/state/msg-map-rev/{qq_gid}/{qq_seq}` → `tg_deleteMessage`. Both forward and reverse maps are cleaned up after deletion.
 
 **TG→QQ recall is NOT possible**: Telegram webhooks do not include message deletion events.
 
@@ -222,8 +222,8 @@ These TG content types produce `[标签]` text but no file transfer: video_note 
 ### Message Mapping
 
 Every forwarded message stores BOTH a forward and reverse mapping:
-- Forward: `/test/var/state/msg-map/{tg_chat_id}/{tg_message_id}` → `{qq_group_id} {qq_message_seq}` — enables TG→QQ reaction sync
-- Reverse: `/test/var/state/msg-map-rev/{qq_group_id}/{qq_message_seq}` → `{tg_chat_id} {tg_message_id}` — enables QQ→TG recall sync
+- Forward: `/ayu/var/state/msg-map/{tg_chat_id}/{tg_message_id}` → `{qq_group_id} {qq_message_seq}` — enables TG→QQ reaction sync
+- Reverse: `/ayu/var/state/msg-map-rev/{qq_group_id}/{qq_message_seq}` → `{tg_chat_id} {tg_message_id}` — enables QQ→TG recall sync
 
 ### Sync Config
 

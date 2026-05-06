@@ -233,11 +233,11 @@ json_get "$resp" key || die "missing key"
 
 ```sh
 # All tests (mock_http, no API keys required)
-docker run --rm -v $(pwd):/test busybox:musl hush /test/test/run.sh
+docker run --rm -v $(pwd):/ayu busybox:musl hush /ayu/test/run.sh
 
 # Single category
-docker run --rm -v $(pwd):/test busybox:musl hush -c "
-  cd /test && . ./lib/core.sh && . ./test/helper.sh && . ./test/test_qq_message.sh
+docker run --rm -v $(pwd):/ayu busybox:musl hush -c "
+  cd /ayu && . ./lib/core.sh && . ./test/helper.sh && . ./test/test_qq_message.sh
 "
 ```
 

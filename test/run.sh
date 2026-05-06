@@ -1,6 +1,6 @@
 #!/bin/sh
 # test/run.sh — Ayu.Core test runner
-# Usage: docker run --rm -v $(pwd):/test busybox:musl sh /test/test/run.sh
+# Usage: docker run --rm -v $(pwd):/ayu busybox:musl sh /ayu/test/run.sh
 
 cd "$(dirname "$0")/.." || exit 1
 . ./lib/core.sh

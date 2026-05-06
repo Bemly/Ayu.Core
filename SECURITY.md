@@ -42,7 +42,7 @@ Ayu.Core is a pure shell bot framework designed to run inside an isolated Docker
 ### Runtime Isolation
 
 - Ayu.Core runs as pid 1 inside the container with no elevated privileges.
-- Volume mounts are read-only for code (`/vol1/1000/Ayu:/test`) and read-write only for shared image storage (`/vol1/1000/Lagrange/img:/tmp/img`).
+- Volume mounts are read-only for code (`/vol1/1000/Ayu:/ayu`) and read-write only for shared image storage (`/vol1/1000/Lagrange/img:/tmp/img`).
 - The container has no access to the host filesystem beyond the explicitly mounted volumes.
 
 ---
@@ -91,5 +91,5 @@ Ayu.Core 是一个纯 shell bot 框架，运行在隔离的 Docker 容器（busy
 ### 运行时隔离
 
 - Ayu.Core 作为容器内 pid 1 运行，无特权提升。
-- 代码卷挂载为只读（`/vol1/1000/Ayu:/test`），仅图片存储卷可读写（`/vol1/1000/Lagrange/img:/tmp/img`）。
+- 代码卷挂载为只读（`/vol1/1000/Ayu:/ayu`），仅图片存储卷可读写（`/vol1/1000/Lagrange/img:/tmp/img`）。
 - 容器仅能访问显式挂载的卷，无法访问宿主文件系统。

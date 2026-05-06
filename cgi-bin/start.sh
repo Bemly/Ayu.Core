@@ -28,7 +28,7 @@ if [ -f "$_cron_tab" ]; then
 	while IFS='|' read -r _time _sc _fn _; do
 		case "$_time" in \#*|"") continue ;; esac
 		_sc_path="$_HB/adapter/$_sc"
-		printf '%s _HB=%s sh -c ". %s && %s"\n' \
+		printf '%s sh -c "_HB=%s . %s && %s"\n' \
 			"$_time" "$_HB" "$_sc_path" "$_fn" >> "$_cron_file"
 	done < "$_cron_tab"
 	crond -l 5 &
