@@ -29,7 +29,7 @@ if [ -f "$_cron_tab" ]; then
 		case "$_time" in \#*|"") continue ;; esac
 		_sc_path="$_HB/adapter/$_sc"
 			_fn="${_fn%%#*}"  # Strip inline comment
-		printf '%s sh -c "_HB=%s . %s && %s" >> %s/var/log/cron.log 2>&1\n' \
+		printf '%s sh -c "timeout -t 300 sh -c \"_HB=%s . %s && %s\"" >> %s/var/log/cron.log 2>&1\n' \
 			"$_time" "$_HB" "$_sc_path" "$_fn" "$_HB" >> "$_cron_file"
 	done < "$_cron_tab"
 	crond -l 5 &
