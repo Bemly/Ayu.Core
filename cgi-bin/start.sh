@@ -28,8 +28,9 @@ if [ -f "$_cron_tab" ]; then
 	while IFS='|' read -r _time _sc _fn _; do
 		case "$_time" in \#*|"") continue ;; esac
 		_sc_path="$_HB/adapter/$_sc"
-		printf '%s sh -c "_HB=%s . %s && %s"\n' \
-			"$_time" "$_HB" "$_sc_path" "$_fn" >> "$_cron_file"
+			_fn="${_fn%%#*}"  # Strip inline comment
+		printf '%s sh -c "_HB=%s . %s && %s" >> %s/var/log/cron.log 2>&1\n' \
+			"$_time" "$_HB" "$_sc_path" "$_fn" "$_HB" >> "$_cron_file"
 	done < "$_cron_tab"
 	crond -l 5 &
 	log_info "crond: started with $(wc -l < "$_cron_file") job(s)"
