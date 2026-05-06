@@ -76,7 +76,9 @@ sync_handler() {
 			;;
 	esac
 
-	# Decode \uXXXX to UTF-8
+	# Decode \uXXXX to UTF-8, then normalize \n (TG/DC can't render)
+		_txt_safe="$(printf '%s' "$_txt" | sed 's/\\n/ /g')"
+		# Decode \uXXXX to UTF-8
 	_txt="$(utf8_decode "$_txt")"
 
 	# Map non-message events to descriptive text
@@ -99,6 +101,7 @@ sync_handler() {
 	_sender="$(utf8_decode "$_sender")"
 	case "$_pf" in qq) _icon="🐧" ;; telegram) _icon="✈️" ;; discord) _icon="👾" ;; *) _icon="[$_pf]" ;; esac
 	_text="$_icon $_sender: $_txt"
+		_text_safe="$_icon $_sender: $_txt_safe"
 
 	# Extract source ID for config lookup
 	_src_id="$(_sync_source_id "$_pf" "$_raw")"
@@ -111,7 +114,7 @@ sync_handler() {
 
 	# Pre-build platform-specific payloads
 	_segs="$(qq_text_segments "$_text")"
-	_dc_body="$(json_obj "content" "$_text")"
+	_dc_body="$(json_obj "content" "$_text_safe")"
 
 	_found=0
 	while IFS='=' read -r _src _tgt; do
@@ -131,9 +134,9 @@ sync_handler() {
 			_tthr="${_tid#*/}"
 			[ "$_tthr" = "$_tcid" ] && _tthr=""
 			if [ -n "$_tthr" ]; then
-				_body="$(json_obj "chat_id" "$_tcid" "text" "$_text" "message_thread_id" "$_tthr")"
+				_body="$(json_obj "chat_id" "$_tcid" "text" "$_text_safe" "message_thread_id" "$_tthr")"
 			else
-				_body="$(json_obj "chat_id" "$_tcid" "text" "$_text")"
+				_body="$(json_obj "chat_id" "$_tcid" "text" "$_text_safe")"
 			fi
 				_tg_api "sendMessage" "$_body" "sync.tg" > "/tmp/sync-tg-resp-$$" || { log_err "sync: $_pf\xe2\x86\x92tg FAIL: $_ERROR"; _resp=""; }
 				_resp="$(cat "/tmp/sync-tg-resp-$$" 2>/dev/null)"; rm -f "/tmp/sync-tg-resp-$$"
