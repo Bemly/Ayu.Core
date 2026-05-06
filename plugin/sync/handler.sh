@@ -79,6 +79,7 @@ sync_handler() {
 	# Decode \uXXXX to UTF-8, then normalize \n (TG/DC can't render)
 		_txt="$(utf8_decode "$_txt")"
 		_txt_safe="$(printf '%b' "$_txt")"
+		_txt_dc="$(printf '%s' "$_txt_safe" | awk 1 ORS=' ')"
 		# Decode \uXXXX to UTF-8
 	_txt="$(utf8_decode "$_txt")"
 
@@ -103,6 +104,7 @@ sync_handler() {
 	case "$_pf" in qq) _icon="🐧" ;; telegram) _icon="✈️" ;; discord) _icon="👾" ;; *) _icon="[$_pf]" ;; esac
 	_text="$_icon $_sender: $_txt"
 		_text_safe="$_icon $_sender: $_txt_safe"
+		_text_dc="$_icon $_sender: $_txt_dc"
 
 	# Extract source ID for config lookup
 	_src_id="$(_sync_source_id "$_pf" "$_raw")"
@@ -115,7 +117,7 @@ sync_handler() {
 
 	# Pre-build platform-specific payloads
 	_segs="$(qq_text_segments "$_text")"
-	_dc_body="$(json_obj "content" "$_text_safe")"
+	_dc_body="$(json_obj "content" "$_text_dc")"
 
 	_found=0
 	while IFS='=' read -r _src _tgt; do
