@@ -98,7 +98,11 @@ dc_batch_run() {
 			_i=$((_i + 1))
 		done
 
-        # Update cursor: first run → newest; subsequent → actual last processed
+        # Update cursor: never go backwards (max of old cursor and newest seen)
+		if [ -z "$_newest" ]; then _newest="$_after"; fi
+		if [ -n "$_after" ] && [ -n "$_newest" ] && [ "$_newest" -lt "$_after" ] 2>/dev/null; then
+			_newest="$_after"
+		fi
 		if [ -n "$_newest" ]; then
 			mkdir -p "$_cur_dir" 2>/dev/null
 			mkdir -p "$_HB/var/log" 2>/dev/null
