@@ -75,12 +75,12 @@ ssh fnOS 'curl ...'  # GNU curl != busybox wget
 
 ```sh
 # 1. Auth: reject missing/wrong token (MUST return 403)
-sudo docker exec Ayu wget -q -O- 'http://127.0.0.1:6160/cgi-bin/router.sh/qq' --post-data='{}'
-sudo docker exec Ayu wget -q -O- 'http://127.0.0.1:6160/cgi-bin/router.sh/qq?token=bad' --post-data='{}'
+sudo docker exec Ayu wget -q -O- 'http://host.docker.internal:6160/cgi-bin/router.sh/qq' --post-data='{}'
+sudo docker exec Ayu wget -q -O- 'http://host.docker.internal:6160/cgi-bin/router.sh/qq?token=bad' --post-data='{}'
 
 # 2. Auth: accept correct token
 sudo docker exec Ayu wget -q -O- \
-  'http://127.0.0.1:6160/cgi-bin/router.sh/qq?token=REDACTED' \
+  'http://host.docker.internal:6160/cgi-bin/router.sh/qq?token=REDACTED' \
   --post-data='{"event_type":"message_receive","data":{"sender_id":1,"message_scene":"group","group_id":1,"segments":[{"type":"text","data":{"text":"test"}}]}}' \
   --header='Content-Type: application/json'
 # Expected: {"status":"ok"}
