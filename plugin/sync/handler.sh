@@ -36,56 +36,58 @@ sync_handler() {
 
 	# QQ message_recall to TG/DC deleteMessage
 	if [ "$_evt" = "message_recall" ] && [ "$_pf" = "qq" ]; then
-	_gid="$(json_get "$_raw" peer_id 2>/dev/null)" || _gid=""
-	_seq="$(json_get "$_raw" message_seq 2>/dev/null)" || _seq=""
-	if [ -n "$_gid" ] && [ -n "$_seq" ] && [ "$_gid" != "NOTFOUND" ] && [ "$_seq" != "NOTFOUND" ]; then
-		# New format: QQ msg -> DC ID (DC->QQ forward)
-		_fwd_map="$_STATE_DIR/msg-map/$_gid/$_seq"
-		if [ -f "$_fwd_map" ]; then
-			_dec_mid="$(cat "$_fwd_map" 2>/dev/null)"
-			rm -f "$_fwd_map"
-			if [ -n "$_dec_mid" ] && [ "$_dec_mid" != "NOTFOUND" ]; then
-				dc_message_delete "$_dec_mid" >/dev/null 2>/dev/null && log_info "sync: recall qq->dc OK $_dec_mid"
-				_dc_rev="$_STATE_DIR/msg-map-rev/discord/$_dec_mid"
-				if [ -f "$_dc_rev" ]; then
-					while read -r _d_tgt _d_chat _d_mid; do
-						case "$_d_tgt" in
-							telegram/*)
-								_tchat="${_d_tgt#telegram/}"
-								tg_deleteMessage "$_tchat" "$_d_mid" >/dev/null 2>/dev/null && log_info "sync: recall qq->tg OK tg=$_tchat msg=$_d_mid"
-								;;
-						esac
-					done < "$_dc_rev"
-				rm -f "$_dc_rev"
-			fi
-		fi
-		# Old format: QQ msg -> TG/DC (QQ->TG/DC forward, backwards compat)
-		else
-			_map="$_STATE_DIR/msg-map-rev/$_gid/$_seq"
-			if [ -f "$_map" ]; then
-				while read -r _tpf_val _tid1 _tid2; do
-					if [ -z "$_tid2" ]; then
-						_tid2="$_tid1"; _tid1="$_tpf_val"; _tpf_val="telegram"
+		_gid="$(json_get "$_raw" peer_id 2>/dev/null)" || _gid=""
+		_seq="$(json_get "$_raw" message_seq 2>/dev/null)" || _seq=""
+		if [ -n "$_gid" ] && [ -n "$_seq" ] && [ "$_gid" != "NOTFOUND" ] && [ "$_seq" != "NOTFOUND" ]; then
+			# New format: QQ msg -> DC ID (DC->QQ forward)
+			_fwd_map="$_STATE_DIR/msg-map/$_gid/$_seq"
+			if [ -f "$_fwd_map" ]; then
+				_dec_mid="$(cat "$_fwd_map" 2>/dev/null)"
+				rm -f "$_fwd_map"
+				if [ -n "$_dec_mid" ] && [ "$_dec_mid" != "NOTFOUND" ]; then
+					dc_message_delete "$_dec_mid" >/dev/null 2>/dev/null && log_info "sync: recall qq->dc OK $_dec_mid"
+					_dc_rev="$_STATE_DIR/msg-map-rev/discord/$_dec_mid"
+					if [ -f "$_dc_rev" ]; then
+						while read -r _d_tgt _d_chat _d_mid; do
+							case "$_d_tgt" in
+								telegram/*)
+									_tchat="${_d_tgt#telegram/}"
+									tg_deleteMessage "$_tchat" "$_d_mid" >/dev/null 2>/dev/null && log_info "sync: recall qq->tg OK tg=$_tchat msg=$_d_mid"
+									;;
+							esac
+						done < "$_dc_rev"
+						rm -f "$_dc_rev"
 					fi
-					_ok=0
-					case "$_tpf_val" in
-						telegram) tg_deleteMessage "$_tid1" "$_tid2" >/dev/null 2>/dev/null && _ok=1 ;;
-						discord) dc_message_delete "$_tid1" "$_tid2" >/dev/null 2>/dev/null && _ok=1 ;;
-					esac
-					if [ $_ok -eq 1 ]; then
-						log_info "sync: recall qq->$_tpf_val OK gid=$_gid seq=$_seq"
-					else
-						log_err "sync: recall qq->$_tpf_val FAIL: $_ERROR"
-					fi
-					rm -f "$_STATE_DIR/msg-map/$_tid1/$_tid2" 2>/dev/null
-				done < "$_map"
-				rm -f "$_map"
+				fi
+			# Old format: QQ msg -> TG/DC (QQ->TG/DC forward, backwards compat)
 			else
-				log_debug "sync: recall no rev-map $_gid/$_seq"
+				_map="$_STATE_DIR/msg-map-rev/$_gid/$_seq"
+				if [ -f "$_map" ]; then
+					while read -r _tpf_val _tid1 _tid2; do
+						if [ -z "$_tid2" ]; then
+							_tid2="$_tid1"; _tid1="$_tpf_val"; _tpf_val="telegram"
+						fi
+						_ok=0
+						case "$_tpf_val" in
+							telegram) tg_deleteMessage "$_tid1" "$_tid2" >/dev/null 2>/dev/null && _ok=1 ;;
+							discord) dc_message_delete "$_tid1" "$_tid2" >/dev/null 2>/dev/null && _ok=1 ;;
+						esac
+						if [ $_ok -eq 1 ]; then
+							log_info "sync: recall qq->$_tpf_val OK gid=$_gid seq=$_seq"
+						else
+							log_err "sync: recall qq->$_tpf_val FAIL: $_ERROR"
+						fi
+						rm -f "$_STATE_DIR/msg-map/$_tid1/$_tid2" 2>/dev/null
+					done < "$_map"
+					rm -f "$_map"
+				else
+					log_debug "sync: recall no rev-map $_gid/$_seq"
+				fi
 			fi
 		fi
+		return 0
 	fi
-	return 0
+
 	# Loop prevention 2: sender is the bot itself
 	case "$_pf" in
 		qq) [ "$_uid" = "$QQ_BOT_ID" ] && return 0 ;;
@@ -102,7 +104,7 @@ sync_handler() {
 		_txt="$(utf8_decode "$_txt")"
 		_txt_safe="$(printf '%b' "$_txt")"
 		_txt_dc="$(printf '%s' "$_txt_safe" | awk 1 ORS=' ')"
-		# Decode \uXXXX to UTF-8
+	# Decode \uXXXX to UTF-8
 	_txt="$(utf8_decode "$_txt")"
 
 	# Map non-message events to descriptive text
@@ -163,7 +165,7 @@ sync_handler() {
 			else
 				_body="$(json_obj "chat_id" "$_tcid" "text" "$_text_safe")"
 			fi
-				_tg_api "sendMessage" "$_body" "sync.tg" > "/tmp/sync-tg-resp-$$" || { log_err "sync: $_pf\xe2\x86\x92tg FAIL: $_ERROR"; _resp=""; }
+				_tg_api "sendMessage" "$_body" "sync.tg" > "/tmp/sync-tg-resp-$$" || { log_err "sync: $_pf→tg FAIL: $_ERROR"; _resp=""; }
 				_resp="$(cat "/tmp/sync-tg-resp-$$" 2>/dev/null)"; rm -f "/tmp/sync-tg-resp-$$"
 				if [ -n "$_resp" ] && [ "$_resp" != "NOTFOUND" ]; then
 					_tmid="$(json_get "$_resp" message_id 2>/dev/null)" || _tmid=""
@@ -194,7 +196,7 @@ sync_handler() {
 			case "$_tid" in
 			group/*)
 				_gid="${_tid#group/}"
-				qq_message_send_group "$_gid" "$_segs" > "/tmp/sync-qq-resp-$$" 2>/dev/null || { log_err "sync: $_pf\xe2\x86\x92qq FAIL: $_ERROR"; _resp=""; }
+				qq_message_send_group "$_gid" "$_segs" > "/tmp/sync-qq-resp-$$" 2>/dev/null || { log_err "sync: $_pf→qq FAIL: $_ERROR"; _resp=""; }
 				_resp="$(cat "/tmp/sync-qq-resp-$$" 2>/dev/null)"; rm -f "/tmp/sync-qq-resp-$$"
 				if [ -n "$_resp" ] && [ "$_resp" != "NOTFOUND" ]; then
 					_rseq="$(json_get "$_resp" message_seq 2>/dev/null)" || _rseq=""
@@ -222,8 +224,8 @@ sync_handler() {
 					_sync_tg_video_to_qq "$_raw" "$_gid"
 					_sync_tg_photo_to_qq "$_raw" "$_gid"
 					_sync_tg_sticker_to_qq "$_raw" "$_gid"
-				_sync_tg_animation_to_qq "$_raw" "$_gid"
-			_ani="$(json_get "$_raw" animation 2>/dev/null)" || _ani=""; [ -z "$_ani" ] || [ "$_ani" = "NOTFOUND" ] && _sync_tg_document_to_qq "$_raw" "$_gid"
+					_sync_tg_animation_to_qq "$_raw" "$_gid"
+					_ani="$(json_get "$_raw" animation 2>/dev/null)" || _ani=""; [ -z "$_ani" ] || [ "$_ani" = "NOTFOUND" ] && _sync_tg_document_to_qq "$_raw" "$_gid"
 				fi
 				;;
 			private/*)
@@ -287,3 +289,4 @@ sync_handler() {
 	[ $_found -eq 0 ] && log_debug "sync: no match for $_pf $_src_id"
 	return 0
 }
+
