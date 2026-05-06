@@ -23,6 +23,7 @@ _sync_dc_text_to_tg() {
     if [ -z "$_txt" ] || [ "$_txt" = "NOTFOUND" ]; then return 0; fi
     _sender="$(_sync_get_sender "discord" "$_raw")"
     _sender="$(utf8_decode "$_sender")"
+    _txt="$(utf8_decode "$_txt")"
     _text="👾 $_sender: $_txt"
     _chat="${_tcid%%/*}"
     _thr="${_tcid#*/}"
@@ -130,6 +131,10 @@ sync_dc_message() {
     _txt="$(json_get "$_raw" content 2>/dev/null)" || _txt=""
     _type="$(json_get "$_raw" type 2>/dev/null)" || _type=""
     [ "$_txt" = "NOTFOUND" ] && _txt=""
+    # Decode Unicode escapes before loop prevention check
+    _txt="$(utf8_decode "$_txt")"
+    # Loop prevention: skip messages forwarded from Ayu (emoji prefix)
+    case "$_txt" in "👾"*|"🐧"*|"✈️"*) return 0 ;; esac
     _atts="$(json_get "$_raw" attachments 2>/dev/null)" || _atts=""
     # Skip if no text and no attachments
     if [ -z "$_txt" ] && [ "$_atts" = "NOTFOUND" ] && [ "$_type" != "0" ]; then return 0; fi
