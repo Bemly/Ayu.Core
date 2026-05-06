@@ -49,9 +49,9 @@ sync_handler() {
 					_dc_rev="$_STATE_DIR/msg-map-rev/discord/$_dec_mid"
 					if [ -f "$_dc_rev" ]; then
 						while read -r _d_tgt _d_chat _d_mid; do
-							case "$_d_tgt" in
+							case "$_d_chat" in
 								telegram/*)
-									_tchat="${_d_tgt#telegram/}"
+									_tchat="${_d_chat#telegram/}"
 									tg_deleteMessage "$_tchat" "$_d_mid" >/dev/null 2>/dev/null && log_info "sync: recall qq->tg OK tg=$_tchat msg=$_d_mid"
 									;;
 							esac
