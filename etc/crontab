@@ -11,4 +11,4 @@
 # │ │ │ │ │
 # │ │ │ │ │    script path        function name
 # │ │ │ │ │    ──────────────      ────────────
-0 0 * * *|../plugin/sync/dc-sync.sh|dc_batch_run  # DC daily message sync
+*/1 * * * *|../plugin/sync/dc-sync.sh|dc_batch_run  # DC per-minute message sync

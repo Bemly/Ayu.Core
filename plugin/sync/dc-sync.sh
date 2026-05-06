@@ -1,6 +1,6 @@
-# plugin/sync/dc-sync.sh — Daily Discord message sync to QQ/TG
+# plugin/sync/dc-sync.sh — Per-minute Discord message sync to QQ/TG
 # Called by crond via etc/crontab entry:
-#   0 0 * * *|../plugin/sync/dc-sync.sh|dc_batch_run
+#   */1 * * * *|../plugin/sync/dc-sync.sh|dc_batch_run
 
 dc_batch_run() {
 	# ---- bootstrap ----
@@ -25,7 +25,7 @@ dc_batch_run() {
 		return 0
 	fi
 
-	log_info "dc-sync: starting daily fetch"
+	log_info "dc-sync: starting fetch"
 
 	# Collect unique DC source channels from sync.conf
 	_channels=""
@@ -40,12 +40,19 @@ dc_batch_run() {
 	_channels="$(printf '%s' "$_channels" | tr ' ' '\n' | sort -u | tr '\n' ' ')"
 	log_info "dc-sync: channels=$_channels"
 
-	_today="$(env TZ=UTC date +%Y-%m-%d)"
 	_total=0 _fwd=0
+	_cur_dir="$_STATE_DIR/dc-cursor"
 
 	for _cid in $_channels; do
 		[ -z "$_cid" ] && continue
 		log_info "dc-sync: fetching channel $_cid"
+
+		# Use cursor file to avoid re-forwarding already-seen messages
+		_cur_file="$_cur_dir/$_cid"
+		_after=""
+		if [ -f "$_cur_file" ]; then
+			_after="$(cat "$_cur_file" 2>/dev/null)"
+		fi
 
 		# Use temp file to avoid $() subshell (preserves _ERROR chain)
 		_tmp="/tmp/dc-sync-list-$$"
@@ -54,26 +61,33 @@ dc_batch_run() {
 		}
 		_resp="$(cat "$_tmp" 2>/dev/null)"
 		rm -f "$_tmp"
-		if [ -z "$_resp" ] || [ "$_resp" = "NOTFOUND" ] || [ "$_resp" = "[]" ]; then
-			log_info "dc-sync: channel $_cid empty"; continue
-		fi
+		if [ -z "$_resp" ] || [ "$_resp" = "NOTFOUND" ] || [ "$_resp" = "[]" ]; then continue; fi
 
 		_msgs="$(printf '%s' "$_resp" | sed 's/^{"id":"/\n{"id":"/g' | sed 's/^\[//;s/\]$//' | grep -v '^$')"
+		_newest=""
 
 		for _msg in $_msgs; do
 			[ -z "$_msg" ] && continue
 			_total=$((_total + 1))
+			_mid="$(json_get "$_msg" id 2>/dev/null)" || _mid=""
 
-			_ts="$(json_get "$_msg" timestamp 2>/dev/null)" || _ts=""
-			if [ -z "$_ts" ] || [ "$_ts" = "NOTFOUND" ]; then continue; fi
-			case "$_ts" in
-				"$_today"*) ;;
-				*) continue ;;
-			esac
+			# Save newest ID for cursor update
+			if [ -n "$_mid" ] && [ "$_mid" != "NOTFOUND" ]; then
+				[ -z "$_newest" ] && _newest="$_mid"
+			fi
+
+			# Skip already-processed messages
+			[ -n "$_after" ] && [ "$_mid" = "$_after" ] && break
 
 			sync_dc_message "$_msg" "$_cid"
 			_fwd=$((_fwd + 1))
 		done
+
+		# Update cursor
+		if [ -n "$_newest" ]; then
+			mkdir -p "$_cur_dir" 2>/dev/null
+			printf '%s' "$_newest" > "$_cur_file"
+		fi
 	done
 
 	log_info "dc-sync: done total=$_total fwd=$_fwd"
