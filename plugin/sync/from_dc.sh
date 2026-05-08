@@ -78,6 +78,7 @@ _sync_dc_attachments_to_qq() {
 	# Split attachment array
 	_items="$(printf '%s' "$_atts" | sed 's/},{/}\n{/g')"
 	_sent=0
+	log_debug "sync: dc->qq atts=$(printf '%.200s' "$_atts")"
 	IFS='
 '
 	for _att in $_items; do
@@ -128,6 +129,7 @@ _sync_dc_attachments_to_tg() {
 	[ "$_thr" = "$_chat" ] && _thr=""
 	_items="$(printf '%s' "$_atts" | sed 's/},{/}\n{/g')"
 	_sent=0
+	log_debug "sync: dc->tg atts=$(printf '%.200s' "$_atts")"
 	IFS='
 '
 	for _att in $_items; do
