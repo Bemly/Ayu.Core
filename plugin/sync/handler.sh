@@ -206,6 +206,10 @@ sync_handler() {
 
 		_tpf="${_tgt%%/*}"
 		_tid="${_tgt#*/}"
+		_nocap=0
+		case "$_tid" in
+			*|noCaption) _tid="${_tid%|noCaption}"; _nocap=1 ;;
+		esac
 		_found=1
 
 		case "$_tpf" in
@@ -213,11 +217,12 @@ sync_handler() {
 			_tcid="${_tid%%/*}"
 			_tthr="${_tid#*/}"
 			[ "$_tthr" = "$_tcid" ] && _tthr=""
-			if [ -n "$_tthr" ]; then
-				_body="$(json_obj "chat_id" "$_tcid" "text" "$_text_safe" "message_thread_id" "$_tthr")"
-			else
-				_body="$(json_obj "chat_id" "$_tcid" "text" "$_text_safe")"
-			fi
+			if [ $_nocap -eq 0 ]; then
+				if [ -n "$_tthr" ]; then
+					_body="$(json_obj "chat_id" "$_tcid" "text" "$_text_safe" "message_thread_id" "$_tthr")"
+				else
+					_body="$(json_obj "chat_id" "$_tcid" "text" "$_text_safe")"
+				fi
 				_tg_api "sendMessage" "$_body" "sync.tg" > "/tmp/sync-tg-resp-$$" || { log_err "sync: $_pf→tg FAIL: $_ERROR"; _resp=""; }
 				_resp="$(cat "/tmp/sync-tg-resp-$$" 2>/dev/null)"; rm -f "/tmp/sync-tg-resp-$$"
 				if [ -n "$_resp" ] && [ "$_resp" != "NOTFOUND" ]; then
@@ -237,6 +242,9 @@ sync_handler() {
 				else
 					log_err "sync: $_pf→tg FAIL: $_ERROR"
 				fi
+			else
+				log_info "sync: $_pf→tg noCaption skip text"
+			fi
 			# Forward images (QQ→TG)
 			if [ "$_pf" = "qq" ]; then
 				_sync_qq_images_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender"
@@ -342,4 +350,3 @@ sync_handler() {
 	[ $_found -eq 0 ] && log_debug "sync: no match for $_pf $_src_id"
 	return 0
 }
-
