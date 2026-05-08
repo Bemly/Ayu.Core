@@ -20,6 +20,7 @@ qq_webhook() {
 			_pid="$(json_get "$_msg" peer_id 2>/dev/null)" || _pid=""
 			_txt="$(qq_extract_text "$_msg" "$_scene" "$_pid")"
 			log_info "qq_webhook: message from $_mid: $_txt"
+			case "$_txt" in \[*\]*) log_info "qq_webhook: DEBUG sticker segs=$(json_get "$_msg" segments 2>/dev/null)" ;; esac
 			dispatch "qq" "message" "$_mid" "$_txt" "$_msg"
 			;;
 		group_nudge)
