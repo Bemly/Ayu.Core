@@ -252,6 +252,13 @@ sync_handler() {
 				_sync_qq_video_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender"
 				_sync_qq_files_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender" "${_sid#group/}"
 			fi
+			# Forward media (DC→TG)
+			if [ "$_pf" = "discord" ]; then
+				_sync_dc_photo_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender"
+				_sync_dc_file_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender"
+				_sync_dc_video_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender"
+				_sync_dc_sticker_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender"
+			fi
 			;;
 		qq)
 			case "$_tid" in
@@ -288,6 +295,13 @@ sync_handler() {
 					_sync_tg_animation_to_qq "$_raw" "$_gid"
 					_ani="$(json_get "$_raw" animation 2>/dev/null)" || _ani=""; [ -z "$_ani" ] || [ "$_ani" = "NOTFOUND" ] && _sync_tg_document_to_qq "$_raw" "$_gid"
 				fi
+				# Forward media (DC→QQ)
+				if [ "$_pf" = "discord" ]; then
+					_sync_dc_photo_to_qq "$_raw" "$_gid" "$_sender"
+					_sync_dc_file_to_qq "$_raw" "$_gid" "$_sender"
+					_sync_dc_video_to_qq "$_raw" "$_gid" "$_sender"
+					_sync_dc_record_to_qq "$_raw" "$_gid" "$_sender"
+				fi
 				;;
 			private/*)
 				_pid="${_tid#private/}"
@@ -300,32 +314,36 @@ sync_handler() {
 			esac
 			;;
 		discord)
-			_dc_resp="$(dc_message_create "$_tid" "$_dc_body" 2>/dev/null)" || _dc_resp=""
-			if [ -n "$_dc_resp" ] && [ "$_dc_resp" != "NOTFOUND" ]; then
-				log_info "sync: $_pf→dc text OK"
-				_dmid="$(json_get "$_dc_resp" id 2>/dev/null)" || _dmid=""
-				if [ "$_pf" = "telegram" ]; then
-					_rseq="$(json_get "$_raw" message_id 2>/dev/null)" || _rseq=""
-				else
-					_rseq="$(json_get "$_raw" message_seq 2>/dev/null)" || _rseq=""
-				fi
-				if [ -n "$_dmid" ] && [ -n "$_rseq" ] && [ "$_dmid" != "NOTFOUND" ] && [ "$_rseq" != "NOTFOUND" ]; then
-					mkdir -p "$_STATE_DIR/msg-map/$_tid" && chmod 777 "$_STATE_DIR/msg-map/$_tid" 2>/dev/null
-					echo "${_sid#group/} $_rseq" > "$_STATE_DIR/msg-map/$_tid/$_dmid"
-					chmod 666 "$_STATE_DIR/msg-map/$_tid/$_dmid" 2>/dev/null
-					mkdir -p "$_STATE_DIR/msg-map-rev/${_sid#group/}" && chmod 777 "$_STATE_DIR/msg-map-rev/${_sid#group/}" 2>/dev/null
-					echo "discord $_tid $_dmid" >> "$_STATE_DIR/msg-map-rev/${_sid#group/}/$_rseq"
-					# If source is TG, also append to QQ rev-map
-					if [ "$_pf" = "telegram" ] && [ -f "/tmp/sync-tg-qq-$$" ]; then
-						read -r _qq_gid _qq_seq < "/tmp/sync-tg-qq-$$"
-						echo "discord $_tid $_dmid" >> "$_STATE_DIR/msg-map-rev/$_qq_gid/$_qq_seq"
-						chmod 666 "$_STATE_DIR/msg-map-rev/$_qq_gid/$_qq_seq" 2>/dev/null
-						rm -f "/tmp/sync-tg-qq-$$"
+			if [ $_nocap -eq 0 ]; then
+				_dc_resp="$(dc_message_create "$_tid" "$_dc_body" 2>/dev/null)" || _dc_resp=""
+				if [ -n "$_dc_resp" ] && [ "$_dc_resp" != "NOTFOUND" ]; then
+					log_info "sync: $_pf→dc text OK"
+					_dmid="$(json_get "$_dc_resp" id 2>/dev/null)" || _dmid=""
+					if [ "$_pf" = "telegram" ]; then
+						_rseq="$(json_get "$_raw" message_id 2>/dev/null)" || _rseq=""
+					else
+						_rseq="$(json_get "$_raw" message_seq 2>/dev/null)" || _rseq=""
 					fi
-					chmod 666 "$_STATE_DIR/msg-map-rev/${_sid#group/}/$_rseq" 2>/dev/null
+					if [ -n "$_dmid" ] && [ -n "$_rseq" ] && [ "$_dmid" != "NOTFOUND" ] && [ "$_rseq" != "NOTFOUND" ]; then
+						mkdir -p "$_STATE_DIR/msg-map/$_tid" && chmod 777 "$_STATE_DIR/msg-map/$_tid" 2>/dev/null
+						echo "${_sid#group/} $_rseq" > "$_STATE_DIR/msg-map/$_tid/$_dmid"
+						chmod 666 "$_STATE_DIR/msg-map/$_tid/$_dmid" 2>/dev/null
+						mkdir -p "$_STATE_DIR/msg-map-rev/${_sid#group/}" && chmod 777 "$_STATE_DIR/msg-map-rev/${_sid#group/}" 2>/dev/null
+						echo "discord $_tid $_dmid" >> "$_STATE_DIR/msg-map-rev/${_sid#group/}/$_rseq"
+						# If source is TG, also append to QQ rev-map
+						if [ "$_pf" = "telegram" ] && [ -f "/tmp/sync-tg-qq-$$" ]; then
+							read -r _qq_gid _qq_seq < "/tmp/sync-tg-qq-$$"
+							echo "discord $_tid $_dmid" >> "$_STATE_DIR/msg-map-rev/$_qq_gid/$_qq_seq"
+							chmod 666 "$_STATE_DIR/msg-map-rev/$_qq_gid/$_qq_seq" 2>/dev/null
+							rm -f "/tmp/sync-tg-qq-$$"
+						fi
+						chmod 666 "$_STATE_DIR/msg-map-rev/${_sid#group/}/$_rseq" 2>/dev/null
+					fi
+				else
+					log_err "sync: $_pf→dc FAIL: $_ERROR"
 				fi
 			else
-				log_err "sync: $_pf→dc FAIL: $_ERROR"
+				log_info "sync: $_pf→dc noCaption skip text"
 			fi
 			# Forward media (QQ→DC)
 			if [ "$_pf" = "qq" ]; then
