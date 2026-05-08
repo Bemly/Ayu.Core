@@ -76,8 +76,6 @@ _sync_dc_attachments_to_qq() {
 		return 0
 	fi
 	# Split attachment array
-	# Strip array brackets (json_get cannot parse [{}] format)
-	_atts="${_atts#[}"; _atts="${_atts%]}"
 	_items="$(printf '%s' "$_atts" | sed 's/},{/}\n{/g')"
 	_sent=0
 	log_debug "sync: dc->qq atts=$(printf '%.200s' "$_atts")"
@@ -130,8 +128,6 @@ _sync_dc_attachments_to_tg() {
 	_chat="${_tcid%%/*}"
 	_thr="${_tcid#*/}"
 	[ "$_thr" = "$_chat" ] && _thr=""
-	# Strip array brackets (json_get cannot parse [{}] format)
-	_atts="${_atts#[}"; _atts="${_atts%]}"
 	_items="$(printf '%s' "$_atts" | sed 's/},{/}\n{/g')"
 	_sent=0
 	log_debug "sync: dc->tg atts=$(printf '%.200s' "$_atts")"
