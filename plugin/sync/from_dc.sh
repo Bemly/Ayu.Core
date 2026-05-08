@@ -71,8 +71,11 @@ _sync_dc_text_to_tg() {
 _sync_dc_attachments_to_qq() {
 	_raw="$1" _gid="$2" _sender="$3"
 	_atts="$(json_get "$_raw" attachments 2>/dev/null)" || _atts=""
-	if [ -z "$_atts" ] || [ "$_atts" = "NOTFOUND" ]; then return 0; fi
-    # Split attachment array
+	if [ -z "$_atts" ] || [ "$_atts" = "NOTFOUND" ]; then
+		log_debug "sync: dc->qq no atts, raw[200]=$(printf '%.200s' "$_raw")"
+		return 0
+	fi
+	# Split attachment array
 	_items="$(printf '%s' "$_atts" | sed 's/},{/}\n{/g')"
 	_sent=0
 	IFS='
@@ -87,7 +90,7 @@ _sync_dc_attachments_to_qq() {
 		_ts=$(date +%s)
 		_tmp="/tmp/img/sync-dc-qq-$$-$_ts"
 		http_get_file "$_url" "$_tmp" || { log_err "sync: dc->qq att download FAIL"; rm -f "$_tmp"; continue; }
-        # Image → QQ image segment, others → file upload
+		# Image → QQ image segment, others → file upload
 		case "$_ct" in
 			image/*)
 				_furi="file:///root/img/sync-dc-qq-$$-$_ts"
@@ -116,7 +119,10 @@ _sync_dc_attachments_to_qq() {
 _sync_dc_attachments_to_tg() {
 	_raw="$1" _tcid="$2" _sender="$3"
 	_atts="$(json_get "$_raw" attachments 2>/dev/null)" || _atts=""
-	if [ -z "$_atts" ] || [ "$_atts" = "NOTFOUND" ]; then return 0; fi
+	if [ -z "$_atts" ] || [ "$_atts" = "NOTFOUND" ]; then
+		log_debug "sync: dc->tg no atts, raw[200]=$(printf '%.200s' "$_raw")"
+		return 0
+	fi
 	_chat="${_tcid%%/*}"
 	_thr="${_tcid#*/}"
 	[ "$_thr" = "$_chat" ] && _thr=""
@@ -148,26 +154,26 @@ _sync_dc_attachments_to_tg() {
 # Called from dc-sync.sh batch script
 sync_dc_message() {
 	_raw="$1" _cid="$2"
-    # Skip empty messages and bot's own messages
+	# Skip empty messages and bot's own messages
 	_author="$(json_get "$_raw" author 2>/dev/null)" || _author=""
 	_aid=""
 	if [ -n "$_author" ] && [ "$_author" != "NOTFOUND" ]; then
 		_aid="$(json_get "$_author" id 2>/dev/null)" || _aid=""
 	fi
-    # Skip bot's own messages
+	# Skip bot's own messages
 	if [ -n "$DC_BOT_ID" ] && [ "$_aid" = "$DC_BOT_ID" ]; then
 		return 0
 	fi
-    # Skip empty content and system messages
+	# Skip empty content and system messages
 	_txt="$(json_get "$_raw" content 2>/dev/null)" || _txt=""
 	_type="$(json_get "$_raw" type 2>/dev/null)" || _type=""
 	[ "$_txt" = "NOTFOUND" ] && _txt=""
-    # Decode Unicode escapes before loop prevention check
+	# Decode Unicode escapes before loop prevention check
 	_txt="$(utf8_decode "$_txt")"
-    # Loop prevention: skip messages forwarded from Ayu (emoji prefix)
+	# Loop prevention: skip messages forwarded from Ayu (emoji prefix)
 	case "$_txt" in "👾"*|"🐧"*|"✈️"*) return 0 ;; esac
 	_atts="$(json_get "$_raw" attachments 2>/dev/null)" || _atts=""
-    # Skip if no text and no attachments
+	# Skip if no text and no attachments
 	if [ -z "$_txt" ] && [ "$_atts" = "NOTFOUND" ] && [ "$_type" != "0" ]; then return 0; fi
 
 	_conf="${_SYNC_CONF:-$_HB/etc/sync.conf}"
