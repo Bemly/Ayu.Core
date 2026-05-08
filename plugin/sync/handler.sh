@@ -191,6 +191,7 @@ sync_handler() {
 	fi
 
 	log_info "sync: $_pf $_src_id → $_txt"
+	log_debug "sync: raw_segs=$(json_get "$_raw" segments 2>/dev/null)"
 
 	# Pre-build platform-specific payloads
 	_segs="$(qq_text_segments "$_text")"
