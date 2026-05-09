@@ -91,7 +91,12 @@ _sync_dc_attachments_to_qq() {
 		_fn="$(utf8_decode "$_fn")"
 		_ts=$(date +%s)
 		_tmp="/tmp/img/sync-dc-qq-$$-$_ts"
-		http_get_file "$_url" "$_tmp" || { log_err "sync: dc->qq att download FAIL"; rm -f "$_tmp"; continue; }
+		if [ -n "${DC_CDN_PROXY:-}" ]; then
+			_url="$(printf '%s' "$_url" | sed 's|https://cdn\.discordapp\.com/|https://'"${DC_CDN_PROXY}"'/|')"
+			http_get_file "$_url" "$_tmp" "${_DC_AYU_AUTH:-}" || { log_err "sync: dc->qq att download FAIL"; rm -f "$_tmp"; continue; }
+		else
+			http_get_file "$_url" "$_tmp" || { log_err "sync: dc->qq att download FAIL"; rm -f "$_tmp"; continue; }
+		fi
 		# Image → QQ image segment, others → file upload
 		case "$_ct" in
 			image/*)
@@ -143,8 +148,13 @@ _sync_dc_attachments_to_tg() {
 		_fn="$(utf8_decode "$_fn")"
 		_ts=$(date +%s)
 		_tmp="/tmp/img/sync-dc-tg-$$-$_ts"
-		http_get_file "$_url" "$_tmp" || { log_err "sync: dc->tg att download FAIL"; rm -f "$_tmp"; continue; }
-		if _sync_tg_multipart "$_chat" "$_thr" "$_tmp" "$_fn" "sendDocument" "document" "$_ct" "👾 $_sender: [文件] $_fn"; then
+		if [ -n "${DC_CDN_PROXY:-}" ]; then
+				_url="$(printf '%s' "$_url" | sed 's|https://cdn\.discordapp\.com/|https://'"${DC_CDN_PROXY}"'/|')"
+				http_get_file "$_url" "$_tmp" "${_DC_AYU_AUTH:-}" || { log_err "sync: dc->tg att download FAIL"; rm -f "$_tmp"; continue; }
+			else
+				http_get_file "$_url" "$_tmp" || { log_err "sync: dc->tg att download FAIL"; rm -f "$_tmp"; continue; }
+			fi
+			if _sync_tg_multipart "$_chat" "$_thr" "$_tmp" "$_fn" "sendDocument" "document" "$_ct" "👾 $_sender: [文件] $_fn"; then
 			_sent=$((_sent + 1)); log_info "sync: dc->tg file OK $_fn"
 		else
 			log_err "sync: dc->tg file FAIL: $_ERROR"
