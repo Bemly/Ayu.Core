@@ -134,6 +134,7 @@ _sync_dc_attachments_to_tg() {
 	IFS='
 '
 	for _att in $_items; do
+		log_debug "sync: dc->tg att_url_ct: url=[$(json_get "$_att" url 2>/dev/null)] ct=[$(json_get "$_att" content_type 2>/dev/null)]"
 		_url="$(json_get "$_att" url 2>/dev/null)" || _url=""
 		_fn="$(json_get "$_att" filename 2>/dev/null)" || _fn="file"
 		_ct="$(json_get "$_att" content_type 2>/dev/null)" || _ct=""
