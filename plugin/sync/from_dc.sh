@@ -158,6 +158,7 @@ _sync_dc_attachments_to_tg() {
 # Called from dc-sync.sh batch script
 sync_dc_message() {
 	_raw="$1" _cid="$2"
+	log_debug "sync: dc_msg raw[300]=$(printf '%.300s' "$_raw")"
 	# Skip empty messages and bot's own messages
 	_author="$(json_get "$_raw" author 2>/dev/null)" || _author=""
 	_aid=""
