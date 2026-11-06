@@ -43,6 +43,11 @@ _api_bool() {
 }
 
 # _mask <value> → *** when set, "" when empty
+# _api_scrub_url <url> — drop embedded credentials (e.g. .../bot<TOKEN>)
+_api_scrub_url() {
+	printf '%s' "$1" | sed -E 's#/bot[^/?]*#/bot***#g; s#([?&](token|key|access_token)=)[^&]*#\1***#g'
+}
+
 _api_mask() {
 	if [ -n "$1" ]; then printf '"***"'; else printf '""'; fi
 }
@@ -121,9 +126,9 @@ _api_sync() {
 _api_config() {
 	printf '{'
 	printf '"bot_host":%s,"bot_port":%s,' "$(json_escape "$BOT_HOST")" "${BOT_PORT:-0}"
-	printf '"qq_api_base":%s,' "$(json_escape "$QQ_API_BASE")"
-	printf '"tg_api_base":%s,' "$(json_escape "$TG_API_BASE")"
-	printf '"dc_api_base":%s,' "$(json_escape "$DC_API_BASE")"
+	printf '"qq_api_base":%s,' "$(json_escape "$(_api_scrub_url "$QQ_API_BASE")")"
+	printf '"tg_api_base":%s,' "$(json_escape "$(_api_scrub_url "$TG_API_BASE")")"
+	printf '"dc_api_base":%s,' "$(json_escape "$(_api_scrub_url "$DC_API_BASE")")"
 	printf '"token_masked":%s,' "$(_api_mask "${TG_TOKEN:-}")"
 	printf '"max_file_size":%s,' "${_SYNC_MAX_FILE_SIZE:-20000000}"
 	printf '"log_level":%s' "${_LOG_LEVEL:-1}"
