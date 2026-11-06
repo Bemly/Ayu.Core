@@ -85,6 +85,15 @@ _reaction_code() {
 }
 
 
+# _sync_short_id <id> [len] — first N chars of a platform id.
+# Snowflakes / openids are 19-32 chars and make every relayed line unreadable;
+# the prefix is enough to tell senders apart inside one group.
+_sync_short_id() {
+	_ssi_len="${2:-7}"
+	[ -n "$1" ] || return 0
+	printf '%s' "$1" | cut -c1-"$_ssi_len"
+}
+
 _sync_get_sender() {
 	_pf="$1" _raw="$2"
 	case "$_pf" in
@@ -130,20 +139,22 @@ _sync_get_sender() {
 		[ -z "$_nm" ] && _nm="unknown"
 		if [ -n "$_un" ] && [ "$_un" != "NOTFOUND" ]; then
 			_id="@$_un"
+		else
+			_id="$(_sync_short_id "$_id")"
 		fi
-		[ -z "$_id" ] && _id="$_id"
 		printf "%s(%s)" "$_nm" "$_id"
 		;;
 	qqbot)
-		# Official webhook events carry no nickname — only an openid.
+		# Official webhook events carry no nickname — only an openid. Show the
+		# first 7 chars as the display name; the full openid stays in the maps.
 		_a="$(json_get "$_raw" author 2>/dev/null)" || _a=""
 		_id="$(json_get "$_a" member_openid 2>/dev/null)" || _id=""
 		case "$_id" in ''|NOTFOUND|null) _id="$(json_get "$_a" user_openid 2>/dev/null)" ;; esac
 		case "$_id" in ''|NOTFOUND|null) _id="$(json_get "$_a" id 2>/dev/null)" ;; esac
 		case "$_id" in ''|NOTFOUND|null) _id="" ;; esac
-		_short="$(printf '%s' "$_id" | cut -c1-6)"
+		_short="$(_sync_short_id "$_id")"
 		[ -n "$_short" ] || _short="unknown"
-		printf "qq#%s(%s)" "$_short" "$_id"
+		printf "qq#%s" "$_short"
 		;;
 	discord)
 		_nm="" _id=""
@@ -160,7 +171,7 @@ _sync_get_sender() {
 		fi
 		[ -z "$_nm" ] && _nm="unknown"
 		[ "$_id" = "NOTFOUND" ] && _id=""
-		printf "%s(%s)" "$_nm" "$_id"
+		printf "%s(%s)" "$_nm" "$(_sync_short_id "$_id")"
 		;;
 	*) printf "unknown" ;;
 	esac
