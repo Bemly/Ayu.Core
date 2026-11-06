@@ -47,6 +47,7 @@ cd "$(dirname "$0")/.." || exit 1
 . ./adapter/discord/poll.sh
 . ./adapter/discord/soundboard.sh
 . ./adapter/discord/monetize.sh
+. ./plugin/maint/clean.sh
 . ./test/helper.sh
 . ./test/mock/mock_http.sh
 

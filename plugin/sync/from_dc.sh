@@ -16,12 +16,12 @@ _sync_dc_text_to_qq() {
 		_mid="$(json_get "$_raw" id 2>/dev/null)" || _mid=""
 		_cid="$(json_get "$_raw" channel_id 2>/dev/null)" || _cid=""
 		if [ -n "$_seq" ] && [ -n "$_mid" ] && [ "$_seq" != "NOTFOUND" ] && [ "$_mid" != "NOTFOUND" ]; then
-			mkdir -p "$_STATE_DIR/msg-map/$_gid" && chmod 777 "$_STATE_DIR/msg-map/$_gid" 2>/dev/null
+			mkdir -p "$_STATE_DIR/msg-map/$_gid" && chmod 2750 "$_STATE_DIR/msg-map/$_gid" 2>/dev/null
 			printf '%s %s' "$_mid" "$_cid" > "$_STATE_DIR/msg-map/$_gid/$_seq"
-			chmod 666 "$_STATE_DIR/msg-map/$_gid/$_seq" 2>/dev/null
-			mkdir -p "$_STATE_DIR/msg-map-rev/discord" && chmod 777 "$_STATE_DIR/msg-map-rev/discord" 2>/dev/null
+			chmod 640 "$_STATE_DIR/msg-map/$_gid/$_seq" 2>/dev/null
+			mkdir -p "$_STATE_DIR/msg-map-rev/discord" && chmod 2750 "$_STATE_DIR/msg-map-rev/discord" 2>/dev/null
 			printf '%s qq/group/%s %s\n' "$_mid" "$_gid" "$_seq" >> "$_STATE_DIR/msg-map-rev/discord/$_mid"
-			chmod 666 "$_STATE_DIR/msg-map-rev/discord/$_mid" 2>/dev/null
+			chmod 640 "$_STATE_DIR/msg-map-rev/discord/$_mid" 2>/dev/null
 		fi
 		log_info "sync: dc->qq OK seq=$_seq"
 	else
@@ -53,12 +53,12 @@ _sync_dc_text_to_tg() {
 		_tmid="$(json_get "$_resp" message_id 2>/dev/null)" || _tmid=""
 		_mid="$(json_get "$_raw" id 2>/dev/null)" || _mid=""
 		if [ -n "$_tmid" ] && [ -n "$_mid" ] && [ "$_tmid" != "NOTFOUND" ] && [ "$_mid" != "NOTFOUND" ]; then
-			mkdir -p "$_STATE_DIR/msg-map/$_chat" && chmod 777 "$_STATE_DIR/msg-map/$_chat" 2>/dev/null
+			mkdir -p "$_STATE_DIR/msg-map/$_chat" && chmod 2750 "$_STATE_DIR/msg-map/$_chat" 2>/dev/null
 			printf '%s' "$_mid" > "$_STATE_DIR/msg-map/$_chat/$_tmid"
-			chmod 666 "$_STATE_DIR/msg-map/$_chat/$_tmid" 2>/dev/null
-			mkdir -p "$_STATE_DIR/msg-map-rev/discord" && chmod 777 "$_STATE_DIR/msg-map-rev/discord" 2>/dev/null
+			chmod 640 "$_STATE_DIR/msg-map/$_chat/$_tmid" 2>/dev/null
+			mkdir -p "$_STATE_DIR/msg-map-rev/discord" && chmod 2750 "$_STATE_DIR/msg-map-rev/discord" 2>/dev/null
 			printf '%s telegram/%s/%s %s\n' "$_mid" "$_chat" "${_tmid}" "$_tmid" >> "$_STATE_DIR/msg-map-rev/discord/$_mid"
-			chmod 666 "$_STATE_DIR/msg-map-rev/discord/$_mid" 2>/dev/null
+			chmod 640 "$_STATE_DIR/msg-map-rev/discord/$_mid" 2>/dev/null
 		fi
 		log_info "sync: dc->tg OK msgid=$_tmid"
 	else

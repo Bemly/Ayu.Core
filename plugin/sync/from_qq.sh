@@ -33,18 +33,36 @@ _sync_qq_images_to_tg() {
 			fi
 			rm -f "$_tmp"
 		else
-			# Static image → sendPhoto with URL
-			rm -f "$_tmp"
-			if [ -n "$_tthr" ]; then
-				_body="$(json_obj "chat_id" "$_tcid" "photo" "$_url" "caption" "🐧 $_sender: [图片]" "message_thread_id" "$_tthr")"
+			# Static image → upload the bytes we already downloaded.
+			# (Sending Telegram the QQ CDN link only works while the temp URL is
+			# alive and anonymous, so it is kept as a fallback, not the main path.)
+			_sz="$(wc -c <"$_tmp" 2>/dev/null)"
+			_magic2="$(dd if="$_tmp" bs=2 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+			_ext="jpg" _mime="image/jpeg"
+			case "$_magic2" in
+				8950) _ext="png" _mime="image/png" ;;
+				5249) _ext="webp" _mime="image/webp" ;;
+			esac
+			_cap="🐧 $_sender: [图片]"
+			if [ "${_sz:-0}" -gt 10000000 ] 2>/dev/null; then
+				# Telegram photo limit is 10 MB — send as a document instead of failing
+				_sync_tg_multipart "$_tcid" "$_tthr" "$_tmp" "qq-image.$_ext" "sendDocument" "document" "$_mime" "$_cap"
 			else
-				_body="$(json_obj "chat_id" "$_tcid" "photo" "$_url" "caption" "🐧 $_sender: [图片]")"
+				_sync_tg_multipart "$_tcid" "$_tthr" "$_tmp" "qq-image.$_ext" "sendPhoto" "photo" "$_mime" "$_cap"
 			fi
-			if _tg_api "sendPhoto" "$_body" "sync.img" >/dev/null; then
+			_rc=$?
+			if [ $_rc -eq 0 ]; then
 				_sent=$((_sent + 1)); log_info "sync: qq→tg image OK"
 			else
-				log_err "sync: qq→tg image FAIL: $_ERROR"
+				log_err "sync: qq→tg image upload FAIL, falling back to url: $_ERROR"
+				if [ -n "$_tthr" ]; then
+					_body="$(json_obj "chat_id" "$_tcid" "photo" "$_url" "caption" "$_cap" "message_thread_id" "$_tthr")"
+				else
+					_body="$(json_obj "chat_id" "$_tcid" "photo" "$_url" "caption" "$_cap")"
+				fi
+				_tg_api "sendPhoto" "$_body" "sync.img" >/dev/null && _sent=$((_sent + 1))
 			fi
+			rm -f "$_tmp"
 		fi
 		rm -f "$_tmp"
 	done

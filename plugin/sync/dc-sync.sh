@@ -27,6 +27,23 @@ dc_batch_run() {
 
 	log_info "dc-sync: starting fetch"
 
+	# ---- single-instance lock ----
+	# A slow API call can outlive the 1-minute cron period; two runs would then
+	# read the same cursor and forward the same messages twice.
+	_lock="/tmp/dc-sync.lock"
+	if ! mkdir "$_lock" 2>/dev/null; then
+		_lpid="$(cat "$_lock/pid" 2>/dev/null)"
+		if [ -n "$_lpid" ] && kill -0 "$_lpid" 2>/dev/null; then
+			log_warn "dc-sync: previous run still active (pid $_lpid), skip"
+			return 0
+		fi
+		log_warn "dc-sync: stale lock (pid=${_lpid:-none}), taking over"
+		rm -f "$_lock/pid" 2>/dev/null
+		rmdir "$_lock" 2>/dev/null
+		mkdir "$_lock" 2>/dev/null || { log_warn "dc-sync: lock busy, skip"; return 0; }
+	fi
+	printf '%s' "$$" > "$_lock/pid" 2>/dev/null
+
     # Collect unique DC source channels from sync.conf
 	_channels=""
 	while IFS='=' read -r _src _tgt; do
@@ -91,7 +108,7 @@ dc_batch_run() {
 
 			# Skip already-processed messages (id <= cursor)
 			if [ -n "$_after" ] && [ -n "$_mid" ] && [ "$_mid" != "NOTFOUND" ] && [ "$_mid" -le "$_after" ] 2>/dev/null; then
-				[ $_total -le 5 ] && log_info "dc-sync: SKIP _i=$_i _mid=$_mid _after=$_after"
+				[ $_total -le 5 ] && log_debug "dc-sync: SKIP _i=$_i _mid=$_mid _after=$_after"
 				_i=$((_i - 1)); continue
 			fi
 

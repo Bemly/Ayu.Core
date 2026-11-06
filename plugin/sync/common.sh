@@ -47,13 +47,26 @@ _emoji_url_encode() {
 _reaction_code() {
 	# Try JSON-escaped \uXXXX[\uYYYY] format first
 	_code="$(printf '%s' "$1" | awk '
+	function hx(h,   i, cc, p, v) {
+		v = 0
+		for (i = 1; i <= 4; i++) {
+			cc = toupper(substr(h, i, 1))
+			p = index("0123456789ABCDEF", cc)
+			if (p == 0) return -1
+			v = v * 16 + p - 1
+		}
+		return v
+	}
 	match($0, /\\u[Dd][89ABab][0-9A-Fa-f][0-9A-Fa-f]\\u[Dd][C-Fc-f][0-9A-Fa-f][0-9A-Fa-f]/) {
-		h1 = substr($0, 3, 4); lo = substr($0, 9, 4)
-		cp = 0x10000 + (("0x"h1) - 0xD800) * 0x400 + (("0x"lo) - 0xDC00)
-		printf "%d", cp; exit
+		h1 = hx(substr($0, 3, 4)); lo = hx(substr($0, 9, 4))
+		if (h1 >= 0 && lo >= 0) {
+			printf "%d", 65536 + (h1 - 55296) * 1024 + (lo - 56320)
+			exit
+		}
 	}
 	match($0, /\\u[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]/) {
-		h = substr($0, 3, 4); printf "%d", "0x"h; exit
+		h = hx(substr($0, 3, 4))
+		if (h >= 0) { printf "%d", h; exit }
 	}
 	')"
 	if [ -n "$_code" ]; then
@@ -62,10 +75,10 @@ _reaction_code() {
 		# Raw emoji character: decode UTF-8 bytes via od
 		printf '%s' "$1" | od -An -tu1 | awk '{
 		b1 = $1; b2 = $2; b3 = $3; b4 = $4
-		if (b1 < 0x80) cp = b1
-		else if (b1 < 0xE0) cp = (b1 - 0xC0) * 64 + (b2 - 0x80)
-		else if (b1 < 0xF0) cp = (b1 - 0xE0) * 4096 + (b2 - 0x80) * 64 + (b3 - 0x80)
-		else cp = (b1 - 0xF0) * 262144 + (b2 - 0x80) * 4096 + (b3 - 0x80) * 64 + (b4 - 0x80)
+		if (b1 < 128) cp = b1
+		else if (b1 < 224) cp = (b1 - 192) * 64 + (b2 - 128)
+		else if (b1 < 240) cp = (b1 - 224) * 4096 + (b2 - 128) * 64 + (b3 - 128)
+		else cp = (b1 - 240) * 262144 + (b2 - 128) * 4096 + (b3 - 128) * 64 + (b4 - 128)
 		printf "%d", cp
 		}'
 	fi

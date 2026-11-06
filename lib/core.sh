@@ -1,6 +1,10 @@
 # Ayu.Core core — error handling + hush-json bootstrap
 # Source this first: . ./lib/core.sh
 
+# Default file policy: owner write, group read/traverse, no other access.
+# Deployments can still grant a specific shared group at the filesystem level.
+umask 027
+
 # ---- hush-json ----
 # Use _HB (bot root) if set, otherwise fall back to $(pwd)
 : "${_HB:=$(pwd)}"

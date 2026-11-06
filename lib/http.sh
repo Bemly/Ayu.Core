@@ -18,22 +18,55 @@ _CT_JSON="Content-Type: application/json"
 # MOCK_HTTP=1 → short-circuit, return MOCK_RESPONSE or fail
 
 # _url_parse <url> → sets _hproto _hhost _hport _hpath
+# Returns 1 on a malformed URL (_ERROR set) instead of handing garbage to nc.
+# Tolerates upstream data that glues the query onto the host
+# ("https://host&rkey=..." / "https://host?x=1"): those are split into host+query.
 _url_parse() {
 	_hurl="$1"
+	case "$_hurl" in
+		*://*) ;;
+		*) _ERROR="url_parse: not an absolute url: $_hurl"; return 1 ;;
+	esac
 	_hproto="${_hurl%%://*}"
 	_hrest="${_hurl#*://}"
-	_hhost="${_hrest%%/*}"
+	_hquery=""
+	# split authority from path first, so "%2F" in a query is not mistaken for /
+	case "$_hrest" in
+		*/*) _hauth="${_hrest%%/*}"; _hpath="/${_hrest#*/}" ;;
+		*)   _hauth="$_hrest"; _hpath="/" ;;
+	esac
+	# malformed: query string glued to authority with '?' or '&'
+	case "$_hauth" in
+		*\?*) _hquery="?${_hauth#*\?}"; _hauth="${_hauth%%\?*}" ;;
+		*\&*) _hquery="?${_hauth#*\&}"; _hauth="${_hauth%%\&*}" ;;
+	esac
+	_hhost="$_hauth"
 	case "$_hhost" in
 		*:*) _hport="${_hhost##*:}"; _hhost="${_hhost%:*}" ;;
-		*) _hport="";;
+		*) _hport="" ;;
 	esac
-	_hpath="/${_hrest#*/}"
+	# host must look like a hostname / IPv4 / [IPv6]
+	case "$_hhost" in
+		""|*[!A-Za-z0-9._:-]*|.|-*)
+			_ERROR="url_parse: invalid host [$_hhost] in $_hurl"; return 1 ;;
+	esac
+	case "$_hport" in
+		""|*[!0-9]*)
+			if [ -n "$_hport" ]; then
+				_ERROR="url_parse: invalid port [$_hport] in $_hurl"; return 1
+			fi
+			;;
+	esac
+	if [ -n "$_hquery" ]; then
+		_hpath="$_hpath$_hquery"
+	fi
 	[ -z "$_hport" ] && {
 		case "$_hproto" in
 			https|wss) _hport=443 ;;
 			*) _hport=80 ;;
 		esac
 	}
+	return 0
 }
 
 # _http_build_req <method> <path> <host> <body_file> [headers...]
@@ -123,7 +156,7 @@ _http_raw() {
 exec 3<&0 3>&1
 cat "$_hreq" | ssl_client -s 3 -n "\$SNI_HOST" | sed '1,/^\r\$/d' > "\$OUTFILE"
 ENDWRAP
-				chmod +x "$_hwrap"
+				chmod u+x,g+x,o-rwx "$_hwrap"
 				_herr="/tmp/ayu-ssl-err.$$"
 				OUTFILE="$_HTTP_OUTFILE" SNI_HOST="$_hhost" \
 					nc "$_hhost" "$_hport" -e "$_hwrap" -w "$_HTTP_TIMEOUT" >/dev/null 2>"$_herr"
@@ -161,7 +194,7 @@ exec 3<&0 3>&1
 exec 1>&2
 cat "$_hreq" | ssl_client -s 3 -n "\$SNI_HOST"
 ENDWRAP
-				chmod +x "$_hwrap"
+				chmod u+x,g+x,o-rwx "$_hwrap"
 				_hres="$(SNI_HOST="$_hhost" nc "$_hhost" "$_hport" -e "$_hwrap" -w "$_HTTP_TIMEOUT" 2>&1)"
 				_hrc=$?
 				rm -f "$_hwrap"
@@ -185,7 +218,11 @@ ENDWRAP
 				return 0
 			fi
 		fi
-		log_warn "_http_raw retry $_hretry/$_HTTP_RETRY: $_hrurl"
+		log_warn "_http_raw retry $_hretry/$_HTTP_RETRY: $_hrurl host=$_hhost:$_hport"
+		# linear backoff — hammering a rate-limited API makes it worse
+		if [ "$_hretry" -le "$_HTTP_RETRY" ]; then
+			sleep "${_HTTP_RETRY_DELAY:-1}"
+		fi
 	done
 
 	rm -f "$_hreq"

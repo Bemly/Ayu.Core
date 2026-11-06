@@ -87,51 +87,43 @@ url_decode() {
 # U+0000..U+007F → 1 byte, U+0080..U+07FF → 2 bytes,
 # U+0800..U+FFFF → 3 bytes, U+10000..U+10FFFF → 4 bytes
 utf8_decode() {
-	printf '%s' "$1" | awk 'BEGIN {
-		split("0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15", hv)
-		split("0123456789ABCDEF", hd, "")
+	printf '%s' "$1" | awk '
+	# Portable hex → number (busybox/mawk awk do not convert "0x.." strings)
+	function hx(h,   i, cc, p, v) {
+		v = 0
+		for (i = 1; i <= 4; i++) {
+			cc = toupper(substr(h, i, 1))
+			p = index("0123456789ABCDEF", cc)
+			if (p == 0) return -1
+			v = v * 16 + p - 1
+		}
+		return v
 	}
 	{
 		s = $0
 		while (match(s, /\\u[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]/)) {
-			h = substr(s, RSTART+2, 4)
-			cp = 0
-			for (i = 1; i <= 4; i++) {
-				cc = substr(h, i, 1)
-				if (cc == "a") cc = "A"; else if (cc == "b") cc = "B"
-				else if (cc == "c") cc = "C"; else if (cc == "d") cc = "D"
-				else if (cc == "e") cc = "E"; else if (cc == "f") cc = "F"
-				for (j = 1; j <= 16; j++) {
-					if (cc == hd[j]) { cp = cp * 16 + hv[j]; break }
-				}
-			}
+			cp = hx(substr(s, RSTART+2, 4))
+			if (cp < 0) { cp = 0 }
 			adv = 6
 			# UTF-16 surrogate pair? (D800-DBFF followed by DC00-DFFF)
-			if (cp >= 0xD800 && cp <= 0xDBFF) {
-				_rs = RSTART; nx = substr(s, RSTART+6, 12)
-				if (match(nx, /^\\u[Dd][C-Fc-f][0-9A-Fa-f][0-9A-Fa-f]/)) {
-					RSTART = _rs; lo = 0; lh = substr(nx, 3, 4)
-					for (i = 1; i <= 4; i++) {
-						lc = substr(lh, i, 1)
-						if (lc == "a") lc = "A"; else if (lc == "b") lc = "B"
-						else if (lc == "c") lc = "C"; else if (lc == "d") lc = "D"
-						else if (lc == "e") lc = "E"; else if (lc == "f") lc = "F"
-						for (j = 1; j <= 16; j++) {
-							if (lc == hd[j]) { lo = lo * 16 + hv[j]; break }
-						}
+			if (cp >= 55296 && cp <= 56319) {
+				nx = substr(s, RSTART+6, 12)
+				if (nx ~ /^\\u[Dd][C-Fc-f][0-9A-Fa-f][0-9A-Fa-f]/) {
+					lo = hx(substr(nx, 3, 4))
+					if (lo >= 56320 && lo <= 57343) {
+						cp = 65536 + (cp - 55296) * 1024 + (lo - 56320)
+						adv = 12
 					}
-					cp = 0x10000 + (cp - 0xD800) * 0x400 + (lo - 0xDC00)
-					adv = 12
 				}
 			}
-			if (cp < 0x80) {
+			if (cp < 128) {
 				u = sprintf("%c", cp)
-			} else if (cp < 0x800) {
-				u = sprintf("%c%c", 0xC0 + int(cp/64), 0x80 + cp%64)
-			} else if (cp < 0x10000) {
-				u = sprintf("%c%c%c", 0xE0 + int(cp/4096), 0x80 + int((cp%4096)/64), 0x80 + cp%64)
+			} else if (cp < 2048) {
+				u = sprintf("%c%c", 192 + int(cp/64), 128 + cp%64)
+			} else if (cp < 65536) {
+				u = sprintf("%c%c%c", 224 + int(cp/4096), 128 + int((cp%4096)/64), 128 + cp%64)
 			} else {
-				u = sprintf("%c%c%c%c", 0xF0 + int(cp/262144), 0x80 + int((cp%262144)/4096), 0x80 + int((cp%4096)/64), 0x80 + cp%64)
+				u = sprintf("%c%c%c%c", 240 + int(cp/262144), 128 + int((cp%262144)/4096), 128 + int((cp%4096)/64), 128 + cp%64)
 			}
 			s = substr(s, 1, RSTART-1) u substr(s, RSTART+adv)
 		}
