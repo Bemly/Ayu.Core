@@ -1,4 +1,9 @@
-# plugin/sync/from_dc.sh — DC source forwarders (DC -> QQ/TG)
+# plugin/sync/from_dc.sh — DC source forwarders (DC -> QQ / TG / qqbot)
+
+# DC -> qqbot relays reuse the official-bot send helpers plus the filename/MIME
+# helpers written for the qqbot source direction; from_qqbot.sh also lazily
+# loads adapter/qqbot/{core,message}.sh, which dc-sync.sh never touches itself.
+[ -f "$_HB/plugin/sync/from_qqbot.sh" ] && . "$_HB/plugin/sync/from_qqbot.sh"
 
 # Forward DC text to QQ
 _sync_dc_text_to_qq() {
@@ -164,6 +169,139 @@ _sync_dc_attachments_to_tg() {
 	[ $_sent -gt 0 ] && return 0 || return 1
 }
 
+# Record "qqbot <gid|oid> <msg id>" under the DC message id so a recall on
+# Discord (or on the QQ side) can find the relayed copy.
+_sync_dc_qqbot_revmap() {
+	_rm_cid="$1" _rm_mid="$2" _rm_val="$3"
+	case "$_rm_cid" in ''|NOTFOUND|null) return 0 ;; esac
+	case "$_rm_mid" in ''|NOTFOUND|null) return 0 ;; esac
+	case "$_rm_val" in *NOTFOUND*) return 0 ;; esac
+	mkdir -p "$_STATE_DIR/msg-map-rev/$_rm_cid" 2>/dev/null
+	chmod 2750 "$_STATE_DIR/msg-map-rev/$_rm_cid" 2>/dev/null
+	echo "$_rm_val" >> "$_STATE_DIR/msg-map-rev/$_rm_cid/$_rm_mid"
+	chmod 640 "$_STATE_DIR/msg-map-rev/$_rm_cid/$_rm_mid" 2>/dev/null
+}
+
+# Forward DC text to the QQ official bot
+_sync_dc_text_to_qqbot() {
+	_raw="$1" _tid="$2" _sender="$3"
+	_txt="$(json_get "$_raw" content 2>/dev/null)" || _txt=""
+	[ -z "$_txt" ] || [ "$_txt" = "NOTFOUND" ] && return 0
+	_txt="$(utf8_decode "$_txt")"
+	if [ -z "$_sender" ] || [ "$_sender" = "NOTFOUND" ]; then
+		_sender="$(_sync_get_sender "discord" "$_raw")"
+	fi
+	_sender="$(utf8_decode "$_sender")"
+	_text="👾 $_sender: $_txt"
+	_mid="$(json_get "$_raw" id 2>/dev/null)" || _mid=""
+	_cid="$(json_get "$_raw" channel_id 2>/dev/null)" || _cid=""
+	case "$_tid" in
+	group/*)
+		_qg="${_tid#group/}"
+		_resp="$(qqbot_message_send_group "$_qg" "$_text" 2>/dev/null)" || _resp=""
+		case "$_resp" in
+			''|NOTFOUND|null) log_err "sync: dc->qqbot group $_qg FAIL: $_ERROR"; return 1 ;;
+		esac
+		log_info "sync: dc->qqbot group $_qg OK"
+		_sync_dc_qqbot_revmap "$_cid" "$_mid" "qqbot $_qg $(json_get "$_resp" id 2>/dev/null)"
+		;;
+	private/*)
+		_qo="${_tid#private/}"
+		_resp="$(qqbot_message_send_c2c "$_qo" "$_text" 2>/dev/null)" || _resp=""
+		case "$_resp" in
+			''|NOTFOUND|null) log_err "sync: dc->qqbot private $_qo FAIL: $_ERROR"; return 1 ;;
+		esac
+		log_info "sync: dc->qqbot private $_qo OK"
+		;;
+	channel/*)
+		_qc="${_tid#channel/}"
+		if qqbot_message_send_channel "$_qc" "$_text" >/dev/null 2>/dev/null; then
+			log_info "sync: dc->qqbot channel $_qc OK"
+		else
+			log_err "sync: dc->qqbot channel $_qc FAIL: $_ERROR"
+			return 1
+		fi
+		;;
+	esac
+	return 0
+}
+
+# Forward DC attachments to the QQ official bot.
+# Images/videos/voice keep their kind (file_type 1/2/3) so the platform renders
+# them inline instead of as a downloadable file; everything else goes as 4.
+_sync_dc_attachments_to_qqbot() {
+	_raw="$1" _tid="$2" _sender="$3"
+	_atts="$(json_get "$_raw" attachments 2>/dev/null)" || _atts=""
+	case "$_atts" in ''|NOTFOUND|null) return 1 ;; esac
+	# Channel media has no upload endpoint in the official API — text only.
+	case "$_tid" in
+		channel/*) log_warn "sync: dc->qqbot channel media unsupported, skipped"; return 1 ;;
+	esac
+	if [ -z "$_sender" ] || [ "$_sender" = "NOTFOUND" ]; then
+		_sender="$(_sync_get_sender "discord" "$_raw")"
+	fi
+	_sender="$(utf8_decode "$_sender")"
+	_items="$(printf '%s' "$_atts" | sed 's/},{/}\n{/g')"
+	_sent=0 _n=0
+	IFS='
+'
+	for _att in $_items; do
+		_n=$(( _n + 1 ))
+		[ -n "$_att" ] || continue
+		_url="$(json_get "$_att" url 2>/dev/null)" || _url=""
+		_fn="$(json_get "$_att" filename 2>/dev/null)" || _fn=""
+		_ct="$(json_get "$_att" content_type 2>/dev/null)" || _ct=""
+		case "$_url" in ''|NOTFOUND|null) continue ;; esac
+		case "$_fn" in ''|NOTFOUND|null) _fn="dc-${_n}" ;; esac
+		_ts=$(date +%s)
+		_tmp="/tmp/img/sync-dc-qqbot-$$-$_ts-$_n"
+		mkdir -p /tmp/img 2>/dev/null
+		_fetch_url="$_url"
+		if [ -n "${DC_CDN_PROXY:-}" ]; then
+			_fetch_url="$(printf '%s' "$_url" | sed 's|https://cdn\.discordapp\.com/|https://'"${DC_CDN_PROXY}"'/|')"
+			http_get_file "$_fetch_url" "$_tmp" "${_DC_AYU_AUTH:-}" || { log_err "sync: dc->qqbot att download FAIL"; rm -f "$_tmp"; continue; }
+		else
+			http_get_file "$_fetch_url" "$_tmp" || { log_err "sync: dc->qqbot att download FAIL"; rm -f "$_tmp"; continue; }
+		fi
+		case "$_ct" in
+			''|NOTFOUND|null|application/octet-stream)
+				_sniff="$(_qqbot_sniff_ct "$_tmp")"
+				[ -n "$_sniff" ] && _ct="$_sniff"
+				;;
+		esac
+		_fn="$(_qqbot_filename_with_ext "$_ct" "$_fn")"
+		_ty="$(qqbot_file_type_of "$_fn")"
+		_cap="👾 $_sender: [$(_qqbot_attach_label "$_ct")]"
+		_ok=0
+		case "$_tid" in
+		group/*)
+			_g="${_tid#group/}"
+			if qqbot_send_group_file_typed "$_g" "$_tmp" "$_ty" "$_fn" "$_cap" >/dev/null 2>/dev/null; then
+				_ok=1
+			elif qqbot_send_group_file_url "$_g" "$_tmp" "$_ty" "$_url" "$_cap" >/dev/null 2>/dev/null; then
+				_ok=1
+			fi
+			;;
+		private/*)
+			_o="${_tid#private/}"
+			if qqbot_send_c2c_file_typed "$_o" "$_tmp" "$_ty" "$_fn" "$_cap" >/dev/null 2>/dev/null; then
+				_ok=1
+			elif qqbot_send_c2c_file_url "$_o" "$_tmp" "$_ty" "$_url" "$_cap" >/dev/null 2>/dev/null; then
+				_ok=1
+			fi
+			;;
+		esac
+		if [ "$_ok" = "1" ]; then
+			_sent=$(( _sent + 1 ))
+			log_info "sync: dc->qqbot ${_ct:-file} OK $_fn (type=$_ty)"
+		else
+			log_err "sync: dc->qqbot ${_ct:-file} FAIL $_fn (type=$_ty): $_ERROR"
+		fi
+		rm -f "$_tmp"
+	done
+	[ "$_sent" -gt 0 ] && return 0 || return 1
+}
+
 # Forward one DC message to its QQ/TG targets per sync.conf
 # Called from dc-sync.sh batch script
 sync_dc_message() {
@@ -186,14 +324,18 @@ sync_dc_message() {
 	[ "$_txt" = "NOTFOUND" ] && _txt=""
 	# Decode Unicode escapes before loop prevention check
 	_txt="$(utf8_decode "$_txt")"
-	# Loop prevention: skip messages forwarded from Ayu (emoji prefix)
-	case "$_txt" in "👾"*|"🐧"*|"✈️"*) return 0 ;; esac
+	# Loop prevention: skip messages forwarded from Ayu (emoji prefix).
+	# 🅠 covers qqbot→dc relays, which are now eligible for dc→qqbot forwarding.
+	case "$_txt" in "👾"*|"🐧"*|"✈️"*|"🅠"*) return 0 ;; esac
 	_atts="$(json_get "$_raw" attachments 2>/dev/null)" || _atts=""
 	# Skip if no text and no attachments
 	if [ -z "$_txt" ] && [ "$_atts" = "NOTFOUND" ] && [ "$_type" != "0" ]; then return 0; fi
 
 	_conf="${_SYNC_CONF:-$_HB/etc/sync.conf}"
 	[ ! -f "$_conf" ] && return 0
+
+	_sender="$(_sync_get_sender "discord" "$_raw")"
+	_sender="$(utf8_decode "$_sender")"
 
 	while IFS='=' read -r _src _tgt; do
 		case "$_src" in \#*|"") continue ;; esac
@@ -211,13 +353,17 @@ sync_dc_message() {
 			group/*)
 				_gid="${_tid#group/}"
 				_sync_dc_text_to_qq "$_raw" "$_gid"
-				_sync_dc_attachments_to_qq "$_raw" "$_gid"
+				_sync_dc_attachments_to_qq "$_raw" "$_gid" "$_sender"
 				;;
 			esac
 			;;
 		telegram)
 			_sync_dc_text_to_tg "$_raw" "$_tid"
-			_sync_dc_attachments_to_tg "$_raw" "$_tid"
+			_sync_dc_attachments_to_tg "$_raw" "$_tid" "$_sender"
+			;;
+		qqbot)
+			_sync_dc_text_to_qqbot "$_raw" "$_tid" "$_sender"
+			_sync_dc_attachments_to_qqbot "$_raw" "$_tid" "$_sender"
 			;;
 		esac
 	done < "$_conf"

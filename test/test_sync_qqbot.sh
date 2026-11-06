@@ -167,6 +167,127 @@ test_sync_qqbot_loop_prefix() {
 	rm -f "$_SYNC_CONF"
 }
 
+# ---- media kind regressions -------------------------------------------------
+# The official bot API returns opaque, extension-less filenames, so a relayed
+# picture used to reach Discord as a downloadable file (no preview) and could
+# fall to sendDocument when content_type was missing.
+_sqb_raw_att_noext() {
+	printf '%s' '{"id":"MSG3","content":"pic","group_openid":"G1","author":{"id":"A1","member_openid":"MEM1"},"attachments":[{"content_type":"image/png","filename":"28F1A2B3","size":1234,"url":"https://cdn.example/x"}]}'
+}
+
+_sqb_raw_att_noct() {
+	printf '%s' '{"id":"MSG4","content":"pic","group_openid":"G1","author":{"id":"A1","member_openid":"MEM1"},"attachments":[{"filename":"Q7W8E9","size":1234,"url":"https://cdn.example/y"}]}'
+}
+
+_sqb_stub_download_png() {
+	http_get_file() {
+		mkdir -p "$(dirname "$2")" 2>/dev/null
+		printf '\211PNG\r\n\032\nFAKE' > "$2"
+		return 0
+	}
+}
+
+_sqb_capture_tg_upload() {
+	: > "$_SQB_STATE/up-tg"
+	_sync_tg_multipart() {
+		printf 'method=%s field=%s fname=%s mime=%s\n' "$5" "$6" "$4" "$7" > "$_SQB_STATE/up-tg"
+		return 0
+	}
+}
+
+_sqb_capture_dc_upload() {
+	: > "$_SQB_STATE/up-dc"
+	_sync_dc_multipart() {
+		printf 'fname=%s mime=%s\n' "$3" "$4" > "$_SQB_STATE/up-dc"
+		return 0
+	}
+}
+
+test_sync_qqbot_image_to_telegram_keeps_photo() {
+	_sqb_conf 'qqbot/group/G1=telegram/-200'
+	_sqb_stub_download
+	_sqb_capture_tg_upload
+	sync_handler "qqbot" "group_message" "MEM1" "[图片]" "$(_sqb_raw_att_noext)" 2>/dev/null
+	assert_contains "$(cat "$_SQB_STATE/up-tg")" "method=sendPhoto" "extension-less png still goes out as sendPhoto"
+	assert_contains "$(cat "$_SQB_STATE/up-tg")" "fname=28F1A2B3.png" "filename gets a .png suffix"
+	assert_contains "$(cat "$_SQB_STATE/up-tg")" "mime=image/png" "mime stays image/png"
+	_sqb_restore_download
+	. ./plugin/sync/common.sh
+	rm -f "$_SYNC_CONF"
+}
+
+test_sync_qqbot_image_to_discord_keeps_preview() {
+	_sqb_conf 'qqbot/group/G1=discord/300'
+	_sqb_stub_download
+	_sqb_capture_dc_upload
+	sync_handler "qqbot" "group_message" "MEM1" "[图片]" "$(_sqb_raw_att_noext)" 2>/dev/null
+	assert_contains "$(cat "$_SQB_STATE/up-dc")" "fname=28F1A2B3.png" "discord upload keeps an image extension"
+	assert_contains "$(cat "$_SQB_STATE/up-dc")" "mime=image/png" "discord upload keeps the image mime"
+	_sqb_restore_download
+	. ./plugin/sync/common.sh
+	rm -f "$_SYNC_CONF"
+}
+
+test_sync_qqbot_image_sniffed_without_content_type() {
+	_sqb_conf 'qqbot/group/G1=telegram/-200'
+	_sqb_stub_download_png
+	_sqb_capture_tg_upload
+	sync_handler "qqbot" "group_message" "MEM1" "[图片]" "$(_sqb_raw_att_noct)" 2>/dev/null
+	assert_contains "$(cat "$_SQB_STATE/up-tg")" "method=sendPhoto" "missing content_type is sniffed from PNG magic"
+	assert_contains "$(cat "$_SQB_STATE/up-tg")" "fname=Q7W8E9.png" "sniffed type also fixes the filename"
+	_sqb_restore_download
+	. ./plugin/sync/common.sh
+	rm -f "$_SYNC_CONF"
+}
+
+# ---- dc -> qqbot ------------------------------------------------------------
+# dc-sync polls Discord itself and only knew qq/telegram targets, so messages
+# seen by that poller never reached the QQ official bot.
+_sqb_raw_dc_msg() {
+	printf '%s' '{"id":"D7","content":"又能关掉一个无头ntqq，-800MB","channel_id":"300","author":{"id":"u9","username":"carol","global_name":"Carol"}}'
+}
+
+_sqb_raw_dc_att() {
+	printf '%s' '{"id":"D8","content":"pic","channel_id":"300","author":{"id":"u9","username":"carol","global_name":"Carol"},"attachments":[{"id":"a1","filename":"9F8E7D","content_type":"image/png","url":"https://cdn.discordapp.com/attachments/1/2/9F8E7D"}]}'
+}
+
+test_sync_dc_to_qqbot_text() {
+	_sqb_conf 'discord/300=qqbot/group/G2'
+	_sqb_capture_group_send
+	sync_dc_message "$(_sqb_raw_dc_msg)" "300" 2>/dev/null
+	assert_contains "$(cat "$_SQB_STATE/sent")" "👾 Carol(u9): 又能关掉一个无头ntqq，-800MB" "dc→qqbot text keeps 👾 + sender"
+	assert_eq "$(cat "$_STATE_DIR/msg-map-rev/300/D7" 2>/dev/null)" "qqbot G2 CAP1" "dc→qqbot rev-map"
+	. "$_HB/adapter/qqbot/message.sh"
+	rm -f "$_SYNC_CONF"
+}
+
+test_sync_dc_to_qqbot_image_is_media() {
+	_sqb_conf 'discord/300=qqbot/group/G2'
+	_sqb_stub_download
+	: > "$_SQB_STATE/qb-up"
+	qqbot_send_group_file_typed() {
+		printf 'type=%s name=%s cap=%s\n' "$3" "$4" "$5" > "$_SQB_STATE/qb-up"
+		return 0
+	}
+	sync_dc_message "$(_sqb_raw_dc_att)" "300" 2>/dev/null
+	assert_contains "$(cat "$_SQB_STATE/qb-up")" "type=1" "dc image is uploaded as file_type=1 (image)"
+	assert_contains "$(cat "$_SQB_STATE/qb-up")" "name=9F8E7D.png" "dc image keeps a .png name"
+	assert_contains "$(cat "$_SQB_STATE/qb-up")" "👾 Carol(u9): [图片]" "dc image caption keeps 👾 + sender"
+	. "$_HB/adapter/qqbot/message.sh"
+	_sqb_restore_download
+	rm -f "$_SYNC_CONF"
+}
+
+test_sync_dc_to_qqbot_loops_are_dropped() {
+	_sqb_conf 'discord/300=qqbot/group/G2'
+	_sqb_capture_group_send
+	printf '%s' '{"id":"D9","content":"🅠 MEM1: hi","channel_id":"300","author":{"id":"u9","username":"carol","global_name":"Carol"}}' > /tmp/sqb-dc-loop-$$.json
+	sync_dc_message "$(cat /tmp/sqb-dc-loop-$$.json)" "300" 2>/dev/null
+	assert_eq "$(cat "$_SQB_STATE/sent" 2>/dev/null)" "" "dc→qqbot skips 🅠-prefixed relays (no loop)"
+	. "$_HB/adapter/qqbot/message.sh"
+	rm -f "$_SYNC_CONF" /tmp/sqb-dc-loop-$$.json
+}
+
 test_sync_qqbot_to_telegram
 test_sync_qqbot_to_discord
 test_sync_qqbot_to_qq_group
@@ -176,6 +297,12 @@ test_sync_telegram_to_qqbot_prefix
 test_sync_discord_to_qqbot_prefix
 test_sync_qqbot_image_to_telegram
 test_sync_qqbot_image_to_discord
+test_sync_qqbot_image_to_telegram_keeps_photo
+test_sync_qqbot_image_to_discord_keeps_preview
+test_sync_qqbot_image_sniffed_without_content_type
+test_sync_dc_to_qqbot_text
+test_sync_dc_to_qqbot_image_is_media
+test_sync_dc_to_qqbot_loops_are_dropped
 test_sync_qq_recall_to_qqbot
 test_sync_qqbot_no_conf
 test_sync_qqbot_loop_prefix

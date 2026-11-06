@@ -57,6 +57,52 @@ _qqbot_attach_mime() {
 	esac
 }
 
+# _qqbot_attach_ext <content_type> → file extension derived from the MIME type
+# The official bot API often returns an extension-less filename (an opaque id),
+# and Discord only renders an inline preview when the name carries a matching
+# extension; without it the picture arrives as a downloadable file.
+_qqbot_attach_ext() {
+	case "$1" in
+		image/gif)             printf 'gif' ;;
+		image/png)             printf 'png' ;;
+		image/webp)            printf 'webp' ;;
+		image/jpeg|image/jpg|image/*) printf 'jpg' ;;
+		video/*)               printf 'mp4' ;;
+		voice*|audio/*)        printf 'wav' ;;
+		*)                     printf '' ;;
+	esac
+}
+
+# _qqbot_filename_with_ext <content_type> <filename>
+# Keep a real name untouched; append the MIME-derived suffix when it has none.
+_qqbot_filename_with_ext() {
+	_qfe_ct="$1" _qfe_fn="$2"
+	case "$_qfe_fn" in
+		*.*) printf '%s' "$_qfe_fn"; return 0 ;;
+	esac
+	_qfe_ext="$(_qqbot_attach_ext "$_qfe_ct")"
+	if [ -n "$_qfe_ext" ]; then
+		printf '%s.%s' "$_qfe_fn" "$_qfe_ext"
+	else
+		printf '%s' "$_qfe_fn"
+	fi
+}
+
+# _qqbot_sniff_ct <path> → content_type from magic bytes, "" when unknown.
+# Some events omit content_type entirely; sniffing keeps them on the image path
+# instead of falling back to sendDocument.
+_qqbot_sniff_ct() {
+	_qsc_magic="$(dd if="$1" bs=4 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')"
+	case "$_qsc_magic" in
+		89504e47*) printf 'image/png' ;;
+		ffd8ff*)   printf 'image/jpeg' ;;
+		47494638*) printf 'image/gif' ;;
+		52494646*)
+			[ "$(dd if="$1" bs=1 skip=8 count=4 2>/dev/null)" = "WEBP" ] && printf 'image/webp'
+			;;
+	esac
+}
+
 # _sync_qqbot_media <tg|dc> <raw d> <cid> <thread> <sender>
 # Returns 0 if at least one attachment was relayed.
 _sync_qqbot_media() {
@@ -84,6 +130,18 @@ _sync_qqbot_media() {
 			rm -f "$_qbm_tmp"
 			continue
 		fi
+		# content_type is sometimes absent / generic — sniff the bytes so a
+		# picture is not downgraded to sendDocument just because QQ omitted it.
+		case "$_qbm_ct" in
+			''|NOTFOUND|null|application/octet-stream)
+				_qbm_sniff="$(_qqbot_sniff_ct "$_qbm_tmp")"
+				if [ -n "$_qbm_sniff" ]; then
+					_qbm_ct="$_qbm_sniff"
+					log_debug "sync: qqbot→$_qbm_pf item $_qbm_n sniffed ct=$_qbm_ct"
+				fi
+				;;
+		esac
+		_qbm_fn="$(_qqbot_filename_with_ext "$_qbm_ct" "$_qbm_fn")"
 		_qbm_mime="$(_qqbot_attach_mime "$_qbm_ct" "$_qbm_fn")"
 		_qbm_cap="🅠 $_qbm_sender: [$(_qqbot_attach_label "$_qbm_ct")]"
 

@@ -207,6 +207,42 @@ qqbot_file_upload_c2c_data() {
 	printf '%s' "$_qcd_r"
 }
 
+# qqbot_send_group_file_typed <group_openid> <path> <file_type> <file_name> [content]
+# Same as qqbot_send_group_file, but the caller supplies the media kind and the
+# display name. Relayed media lands in an extension-less temp file, so
+# qqbot_file_type_of would classify every picture as file_type=4 (plain file).
+qqbot_send_group_file_typed() {
+	_qsgft_resp="$(qqbot_file_upload_group_data "$1" "$3" "$2" "$4" false)" || return 1
+	_qsgft_fi="$(json_get "$_qsgft_resp" file_info 2>/dev/null)" || _qsgft_fi=""
+	case "$_qsgft_fi" in ''|NOTFOUND|null) _ERROR="qqbot.group.file: no file_info in response"; return 1 ;; esac
+	qqbot_message_send_group_media "$1" "$_qsgft_fi" "${5:-}"
+}
+
+# qqbot_send_group_file_url <group_openid> <path> <file_type> <url> [content]
+# Fallback for payloads above the 5MB file_data cap: upload by public URL.
+qqbot_send_group_file_url() {
+	_qsgfu_resp="$(qqbot_file_upload_group "$1" "$3" "$4" false)" || return 1
+	_qsgfu_fi="$(json_get "$_qsgfu_resp" file_info 2>/dev/null)" || _qsgfu_fi=""
+	case "$_qsgfu_fi" in ''|NOTFOUND|null) _ERROR="qqbot.group.file: no file_info in response"; return 1 ;; esac
+	qqbot_message_send_group_media "$1" "$_qsgfu_fi" "${5:-}"
+}
+
+# qqbot_send_c2c_file_typed <user_openid> <path> <file_type> <file_name> [content]
+qqbot_send_c2c_file_typed() {
+	_qscft_resp="$(qqbot_file_upload_c2c_data "$1" "$3" "$2" "$4" false)" || return 1
+	_qscft_fi="$(json_get "$_qscft_resp" file_info 2>/dev/null)" || _qscft_fi=""
+	case "$_qscft_fi" in ''|NOTFOUND|null) _ERROR="qqbot.c2c.file: no file_info in response"; return 1 ;; esac
+	qqbot_message_send_c2c_media "$1" "$_qscft_fi" "${5:-}"
+}
+
+# qqbot_send_c2c_file_url <user_openid> <path> <file_type> <url> [content]
+qqbot_send_c2c_file_url() {
+	_qscfu_resp="$(qqbot_file_upload_c2c "$1" "$3" "$4" false)" || return 1
+	_qscfu_fi="$(json_get "$_qscfu_resp" file_info 2>/dev/null)" || _qscfu_fi=""
+	case "$_qscfu_fi" in ''|NOTFOUND|null) _ERROR="qqbot.c2c.file: no file_info in response"; return 1 ;; esac
+	qqbot_message_send_c2c_media "$1" "$_qscfu_fi" "${5:-}"
+}
+
 # qqbot_send_group_file <group_openid> <path> [content] [msg_id] [msg_seq]
 # Upload then send as msg_type=7 media in one call — the usual "attach a file"
 # path for handlers and sync.
