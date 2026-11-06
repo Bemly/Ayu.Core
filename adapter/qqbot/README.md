@@ -878,7 +878,7 @@ body: {"plain_token": "Arq0D5A61EgUu4OxUvOp","signature": "87befc99c42c651b3aac0
 
 ### 2.2 通用数据结构
 
-`payload` 指的是在 `webhook` 或 `websocket` 连接上传输的数据，网关的上下行消息采用的都是同一个结构，如下：
+`payload` 是回调请求体与响应体的通用结构（官方原文同时描述 WebSocket，此处按 Webhook 回调说明），回调的请求与响应采用同一结构，如下：
 
 ```json
 {
@@ -894,7 +894,7 @@ body: {"plain_token": "Arq0D5A61EgUu4OxUvOp","signature": "87befc99c42c651b3aac0
 |---|---|
 | id | 事件id |
 | op | 指的是 opcode，参考连接维护 |
-| s | 下行消息都会有一个序列号，标识消息的唯一性，客户端需要再发送心跳的时候，携带客户端收到的最新的 s |
+| s | WebSocket 专用的心跳序列号；Webhook 回调模式无意义，可忽略 |
 | t | 代表事件类型。主要用在 op 为 0 Dispatch 的时候 |
 | d | 代表事件内容，不同事件类型的事件内容格式都不同，请注意识别。主要用在 op 为 0 Dispatch 的时候 |
 
@@ -905,15 +905,11 @@ body: {"plain_token": "Arq0D5A61EgUu4OxUvOp","signature": "87befc99c42c651b3aac0
 | CODE | 名称 | 接入方式 | 客户端行为 | 描述 |
 |---|---|---|---|---|
 | 0 | Dispatch | webhook/websocket | Receive | 服务端进行消息推送 |
-| 1 | Heartbeat | websocket | Send/Receive | 客户端或服务端发送心跳 |
-| 2 | Identify | websocket | Send | 客户端发送鉴权 |
-| 6 | Resume | websocket | Send | 客户端恢复连接 |
-| 7 | Reconnect | websocket | Receive | 服务端通知客户端重新连接 |
-| 9 | Invalid Session | websocket | Receive | 当 identify 或 resume 的时候，如果参数有错，服务端会返回该消息 |
-| 10 | Hello | websocket | Receive | 当客户端与网关建立 ws 连接之后，网关下发的第一条消息 |
-| 11 | Heartbeat ACK | websocket | Receive/Reply | 当发送心跳成功之后，就会收到该消息 |
+
 | 12 | HTTP Callback ACK | webhook | Reply | 仅用于 http 回调模式的回包，代表机器人收到了平台推送的数据 |
 | 13 | 回调地址验证 | webhook | Receive | 开放平台对机器人服务端进行验证 |
+
+仅 WebSocket 使用的 opcode（1 Heartbeat / 2 Identify / 6 Resume / 7 Reconnect / 9 Invalid Session / 10 Hello / 11 Heartbeat ACK）已省略；Webhook 模式只涉及 op 0 / 12 / 13。
 
 客户端行为含义如下：
 
@@ -925,7 +921,7 @@ body: {"plain_token": "Arq0D5A61EgUu4OxUvOp","signature": "87befc99c42c651b3aac0
 
 事件的 `intents` 是一个标记位，每一位都代表不同的事件，如果需要接收某类事件，就将该位置为 `1`。
 
-每个 `intents` 位代表的是一类事件，可以使用 `websocket` 传输的数据中的 `t` 字段的值来区分。
+每个 `intents` 位代表的是一类事件，可以用推送数据中的 `t` 字段的值来区分。
 
 事件和位移的关系如下：
 
@@ -1003,9 +999,9 @@ PUBLIC_GUILD_MESSAGES (1 << 30) // 消息事件，此为公域的消息事件
 
 ##### 权限
 
-事件类型的订阅，是有权限控制的，除了 `GUILDS`，`PUBLIC_GUILD_MESSAGES`，`GUILD_MEMBERS` 事件是基础的事件，默认有权限订阅之外，其他的特殊事件，都需要经过申请才能够使用，如果在鉴权的时候传递了无权限的 `intents`，`websocket` 会报错，并直接关闭连接。请开发者注意订阅事件的范围需要控制在自己所需要的范围之内。
+事件类型的订阅，是有权限控制的，除了 `GUILDS`，`PUBLIC_GUILD_MESSAGES`，`GUILD_MEMBERS` 事件是基础的事件，默认有权限订阅之外，其他的特殊事件，都需要经过申请才能够使用，WebSocket 模式下无权限的 `intents` 会在鉴权时报错并断开；Webhook 模式不传 `intents`，等价约束体现为管理端只能勾选已授权的事件。请开发者注意订阅事件的范围需要控制在自己所需要的范围之内。
 
-如果拥有的某个特殊事件类型的权限被取消，则在当前连接上不会报错，但是将不会收到对应的事件类型，如果重新连接，则报错，所以如果开发者的事件类型权限被取消，请及时调整监听事件代码，避免报错导致的无法连接。
+如果拥有的某个特殊事件类型的权限被取消，则在当前连接上不会报错，但是将不会收到对应的事件类型，Webhook 模式下应回到管理端核对已订阅事件，避免订阅被撤后静默收不到事件。
 
 ### 2.3 事件订阅与通知
 
@@ -1017,7 +1013,7 @@ PUBLIC_GUILD_MESSAGES (1 << 30) // 消息事件，此为公域的消息事件
 
 #### 通用数据结构 Payload
 
-`payload` 指的是在 `webhook`或`websocket` 连接上传输的数据，网关的上下行消息采用的都是同一个结构，如下：
+`payload` 是回调请求体与响应体的通用结构（官方原文同时描述 WebSocket，此处按 Webhook 回调说明），回调的请求与响应采用同一结构，如下：
 
 ```json
 {
@@ -1033,7 +1029,7 @@ PUBLIC_GUILD_MESSAGES (1 << 30) // 消息事件，此为公域的消息事件
 |---|---|
 | id | 事件id |
 | op | 指的是 opcode，参考连接维护 |
-| s | 下行消息都会有一个序列号，标识消息的唯一性，客户端需要再发送心跳的时候，携带客户端收到的最新的s |
+| s | WebSocket 专用的心跳序列号；Webhook 回调模式无意义，可忽略 |
 | t | 代表事件类型。主要用在op为 0 Dispatch 的时候 |
 | d | 代表事件内容，不同事件类型的事件内容格式都不同，请注意识别。主要用在op为 0 Dispatch 的时候 |
 
@@ -1044,15 +1040,11 @@ PUBLIC_GUILD_MESSAGES (1 << 30) // 消息事件，此为公域的消息事件
 | CODE | 名称 | 接入方式 | 客户端行为 | 描述 |
 |---|---|---|---|---|
 | 0 | Dispatch | webhook/websocket | Receive | 服务端进行消息推送 |
-| 1 | Heartbeat | websocket | Send/Receive | 客户端或服务端发送心跳 |
-| 2 | Identify | websocket | Send | 客户端发送鉴权 |
-| 6 | Resume | websocket | Send | 客户端恢复连接 |
-| 7 | Reconnect | websocket | Receive | 服务端通知客户端重新连接 |
-| 9 | Invalid Session | websocket | Receive | 当 identify 或 resume 的时候，如果参数有错，服务端会返回该消息 |
-| 10 | Hello | websocket | Receive | 当客户端与网关建立 ws 连接之后，网关下发的第一条消息 |
-| 11 | Heartbeat ACK | websocket | Receive/Reply | 当发送心跳成功之后，就会收到该消息 |
+
 | 12 | HTTP Callback ACK | webhook | Reply | 仅用于 http 回调模式的回包，代表机器人收到了平台推送的数据 |
 | 13 | 回调地址验证 | webhook | Receive | 开放平台对机器人服务端进行验证 |
+
+仅 WebSocket 使用的 opcode（1 Heartbeat / 2 Identify / 6 Resume / 7 Reconnect / 9 Invalid Session / 10 Hello / 11 Heartbeat ACK）已省略；Webhook 模式只涉及 op 0 / 12 / 13。
 
 客户端行为含义如下：
 
@@ -1272,7 +1264,7 @@ body: {"plain_token": "Arq0D5A61EgUu4OxUvOp","signature": "87befc99c42c651b3aac0
     - 主动推送消息在每个频道中，每天可以往 2 个子频道推送消息。超过后会被限制。
 - 不论主动消息还是被动消息，在一个子频道中，每秒 最多可发送 5 条 消息。
 - 被动回复消息有效期为 5 分钟，超时会发送失败。
-- 发送消息接口要求机器人接口需要连接到 WebSocket 上保持在线状态
+- 发送消息接口要求机器人在线（官方原文按 WebSocket 表述；Webhook 模式下即回调地址可用）
 - 有关主动消息审核，可以通过 事件订阅 Intents 中审核事件 MESSAGE_AUDIT 返回 MessageAudited 对象获取结果。
 
 ###### 频道私信
@@ -11564,7 +11556,7 @@ application/json
 
 ## 8. Webhook 事件
 
-平台通过回调推送的 22 个事件
+平台通过回调推送的 22 个事件（个别事件概况表标注「推送方式 Websocket」属官方文档历史遗留，实际可订阅项以管理端为准）
 
 ### 8.1 `C2C_MESSAGE_CREATE` — 单聊消息事件
 
@@ -13274,31 +13266,6 @@ HTTP 业务错误与排查建议
 - 响应 Body：返回体中的 trace_id 字段
 
 如果开发者有无法自行定位的问题，需要找平台协助时，可提取该 ID 提交给平台方，方便查询相关日志。
-
-#### WebSocket 错误码
-
-| 值 | 含义 | 是否可以重试 RESUME | 是否可以重试 IDENTIFY |
-|---|---|---|---|
-| 4001 | 无效的 opcode | 否 | 否 |
-| 4002 | 无效的 payload | 否 | 否 |
-| 4007 | seq 错误 | 否 | **是** |
-| 4006 | 无效的 session id，无法继续 resume，请 identify | 否 | **是** |
-| 4008 | 发送 payload 过快，请重新连接，并遵守连接后返回的频控信息 | **是** | **是** |
-| 4009 | 连接过期，请重连并执行 resume 进行重新连接 | **是** | **是** |
-| 4010 | 无效的 shard | 否 | 否 |
-| 4011 | 连接需要处理的 guild 过多，请进行合理的分片 | 否 | 否 |
-| 4012 | 无效的 version | 否 | 否 |
-| 4013 | 无效的 intent | 否 | 否 |
-| 4014 | intent 无权限 | 否 | 否 |
-| 4900~4913 | 内部错误，请重连 | 否 | **是** |
-| 4914 | 机器人已下架,只允许连接沙箱环境,请断开连接,检验当前连接环境 | 否 | 否 |
-| 4915 | 机器人已封禁,不允许连接,请断开连接,申请解封后再连接 | 否 | 否 |
-
-针对 WebSocket 错误码的简单处理逻辑：
-
-- 4009 可以重新发起 resume
-- 4914，4915 不可以连接，请联系官方解封
-- 其他错误，请重新发起 identify
 
 ### 9.2 业务报错返回的数据信息(Data)
 
