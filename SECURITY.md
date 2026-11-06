@@ -23,7 +23,9 @@ Ayu.Core is a pure shell bot framework designed to run inside an isolated Docker
 ### Webhook Authentication
 
 - Set `WEBHOOK_SECRET` in `etc/config.sh` to require `?token=<secret>` on all incoming webhook URLs.
-- The router returns HTTP 403 for missing or incorrect tokens.
+- The router returns HTTP 403 for missing or incorrect tokens (the body is a JSON error, and the request is logged with the token masked).
+- Bot/API/webhook credentials are masked at the logging layer (`_log_scrub` in `lib/log.sh`): `token=`, `secret=`, `Bot <token>`, `Bearer <token>` and `api.telegram.org/file/bot<token>` are replaced with `***` before anything reaches `var/log`. Existing credentials therefore never need to be rotated because of log exposure.
+- The dashboard API (`cgi-bin/api.sh`) is read-only and reuses `WEBHOOK_SECRET`; it exposes credential *flags* (`true`/`false`) and a masked token, never the secrets themselves.
 - Special characters in tokens (`#`, `<`, `;`, etc.) are handled via URL encoding.
 
 ### Network Security
@@ -42,7 +44,11 @@ Ayu.Core is a pure shell bot framework designed to run inside an isolated Docker
 ### Runtime Isolation
 
 - Ayu.Core runs as pid 1 inside the container with no elevated privileges.
-- Volume mounts are read-only for code (`/vol1/1000/Ayu:/ayu`) and read-write only for shared image storage (`/vol1/1000/Lagrange/img:/tmp/img`).
+- The routing table under `var/state/msg-map{,-rev}` holds *message ids only* (never message bodies or
+  media). It is trimmed daily — entries older than `MAINT_STATE_KEEP_DAYS` (30) and anything beyond
+  `MAINT_STATE_KEEP_ITEMS` (5000) per conversation are removed; `var/state/dc-cursor` is never touched.
+  Retention is configurable, and `MAINT_STATE_DRY=1` turns the trim into a report-only pass.
+- Code volume is mounted read-write (`/vol1/1000/Ayu:/ayu`): the bot must persist `var/state` message maps, `var/log` logs and reloaded plugins. Shared image storage is mounted read-write as well (`/vol1/1000/Lagrange/img:/tmp/img`). Neither mount is read-only, so treat the host directory as state-bearing.
 - The container has no access to the host filesystem beyond the explicitly mounted volumes.
 
 ---
@@ -72,6 +78,8 @@ Ayu.Core 是一个纯 shell bot 框架，运行在隔离的 Docker 容器（busy
 ### Webhook 认证
 
 - 在 `etc/config.sh` 中设置 `WEBHOOK_SECRET`，所有 webhook URL 必须携带 `?token=<secret>`。
+- 日志层统一脱敏（`lib/log.sh` 的 `_log_scrub`）：`token=`、`secret=`、`Bot <token>`、`Bearer <token>`、`api.telegram.org/file/bot<token>` 在写入 `var/log` 前一律替换为 `***`，因此历史日志泄露不构成轮换密钥的必要理由。
+- 面板 API（`cgi-bin/api.sh`）只读，复用 `WEBHOOK_SECRET` 鉴权，只暴露密钥「是否已配置」的布尔值与掩码值，不返回明文。
 - 缺失或错误的 token 返回 HTTP 403。
 - token 中的特殊字符（`#`、`<`、`;` 等）通过 URL 编码处理。
 
@@ -91,5 +99,8 @@ Ayu.Core 是一个纯 shell bot 框架，运行在隔离的 Docker 容器（busy
 ### 运行时隔离
 
 - Ayu.Core 作为容器内 pid 1 运行，无特权提升。
-- 代码卷挂载为只读（`/vol1/1000/Ayu:/ayu`），仅图片存储卷可读写（`/vol1/1000/Lagrange/img:/tmp/img`）。
+- `var/state/msg-map{,-rev}` 路由表只存*消息 ID 对照*（不含消息正文与媒体），每日修剪：超过
+  `MAINT_STATE_KEEP_DAYS`（30 天）以及单会话超过 `MAINT_STATE_KEEP_ITEMS`（5000 条）的条目会被删除，
+  `var/state/dc-cursor` 永不触碰。保留窗口可配置，`MAINT_STATE_DRY=1` 时只统计不删除。
+- 代码卷为读写挂载（`/vol1/1000/Ayu:/ayu`）：需要写 `var/state` 消息映射、`var/log` 日志及热更新插件；图片存储卷同样读写（`/vol1/1000/Lagrange/img:/tmp/img`）。两个挂载都不是只读，请按有状态目录对待。
 - 容器仅能访问显式挂载的卷，无法访问宿主文件系统。

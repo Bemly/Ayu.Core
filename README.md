@@ -36,7 +36,7 @@ Ayu.Core/
 │   └── discord/            # Discord — 18 files, 135 functions (REST + webhook)
 ├── plugin/                 # Business logic
 │   └── sync/               # Cross-platform sync + dc-sync.sh (crond entry)
-├── webui/                  # Dashboard (Luolita SFC framework)
+├── webui/                  # Dashboard (native HTML/CSS/JS, backed by cgi-bin/api.sh)
 ├── etc/                    # config, rules, crontab, sync.conf, README
 └── test/                   # 141 tests, 0 failures (mock_http, no API keys)
 ```
@@ -252,3 +252,37 @@ docker run --rm -v $(pwd):/ayu busybox:musl hush -c "
 - **awk** — var names ≤3 chars, `"\n"` is literal
 - **JSON escapes** — only `\"` and `\\` resolved natively; `\uXXXX` decoded via `utf8_decode`
 - **$() trap** — functions that set `_ERROR` must not run inside subshells
+
+## Dashboard (webui)
+
+`webui/` is a dependency-free dashboard (plain HTML/CSS/JS) served by the same httpd.
+Fetch data from the read-only JSON API:
+
+| Endpoint | Purpose |
+|---|---|
+| `/cgi-bin/api.sh?action=status` | uptime, platforms, state/log/media sizes, maintenance timestamp |
+| `/cgi-bin/api.sh?action=logs&which=bot\|cron\|error&lines=N` | tail of a log file (already scrubbed) |
+| `/cgi-bin/api.sh?action=sync` | configured sync pairs |
+| `/cgi-bin/api.sh?action=config` | non-secret config (token shown as a flag) |
+
+Pass `&token=<WEBHOOK_SECRET>` when `WEBHOOK_SECRET` is set; the UI stores it in `sessionStorage` and never renders it.
+
+## Maintenance
+
+`plugin/maint/clean.sh` runs at boot (`cgi-bin/start.sh`) and daily via `etc/crontab`:
+
+- rotates `var/log/{bot,error,cron}.log` when they exceed 5/5/2 MB (keeps `.1`/`.2`)
+- removes abandoned scratch files in `/tmp` (`ayu-*`, `tg-up-*`, `tg-api.*`, `dc-*-resp*`, …)
+- trims the routing table in `var/state/msg-map{,-rev}`: drops entries older than
+  **30 days** and caps each conversation at **5000** entries (`maint_trim_state`)
+- never deletes `dc-cursor`, chat content, or the forwarded media cache in `/tmp/img`
+- logs a warning when `var/state` still grows past 3 GB after trimming
+
+Tunables (env or `etc/config.sh`):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MAINT_STATE_KEEP_DAYS` | `30` | drop map entries older than N days |
+| `MAINT_STATE_KEEP_ITEMS` | `5000` | hard cap per conversation directory |
+| `MAINT_STATE_MIN_ITEMS` | `200` | never trim a directory below this |
+| `MAINT_STATE_DRY` | `0` | `1` = report only, delete nothing |

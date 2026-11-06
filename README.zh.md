@@ -36,7 +36,7 @@ Ayu.Core/
 │   └── discord/            # Discord — 18 文件, 135 个函数 (REST + webhook)
 ├── plugin/                 # 业务插件
 │   └── sync/               # 跨平台同步 + dc-sync.sh (crond 定时入口)
-├── webui/                  # Dashboard (Luolita SFC 框架)
+├── webui/                  # 面板（原生 HTML/CSS/JS，数据来自 cgi-bin/api.sh）
 ├── etc/                    # config, rules, crontab, sync.conf, README
 └── test/                   # 141 tests, 0 failures (mock_http, 无需 API key)
 ```
@@ -252,3 +252,35 @@ docker run --rm -v $(pwd):/ayu busybox:musl hush -c "
 - **awk** — 变量名 ≤3 字符，`"\n"` 是字面量
 - **JSON 转义** — 只解析 `\"` `\\`，`\uXXXX` 通过 `utf8_decode` 额外处理
 - **$() 禁忌** — 设置 `_ERROR` 的函数不能放 subshell
+
+## 面板（webui）
+
+`webui/` 是零依赖面板（原生 HTML/CSS/JS），由同一个 httpd 提供，数据来自只读 JSON API：
+
+| 接口 | 用途 |
+|---|---|
+| `/cgi-bin/api.sh?action=status` | 运行时长、平台状态、状态/日志/媒体体积、上次维护时间 |
+| `/cgi-bin/api.sh?action=logs&which=bot\|cron\|error&lines=N` | 日志尾部（已脱敏） |
+| `/cgi-bin/api.sh?action=sync` | 已配置的同步映射 |
+| `/cgi-bin/api.sh?action=config` | 非敏感配置（密钥仅显示是否已配置） |
+
+设了 `WEBHOOK_SECRET` 时需带 `&token=<WEBHOOK_SECRET>`；前端只存在 `sessionStorage`，不落盘、不回显。
+
+## 维护清理
+
+`plugin/maint/clean.sh` 在启动时（`cgi-bin/start.sh`）和每天由 `etc/crontab` 各跑一次：
+
+- `var/log/{bot,error,cron}.log` 超过 5/5/2 MB 时轮转（保留 `.1`/`.2`）
+- 清理 `/tmp` 里残留的临时文件（`ayu-*`、`tg-up-*`、`tg-api.*`、`dc-*-resp*` 等）
+- 修剪 `var/state/msg-map{,-rev}` 路由表：删除 **30 天**前的条目，每个会话最多保留 **5000** 条（`maint_trim_state`）
+- 不删除 `dc-cursor`、聊天内容、`/tmp/img` 转发缓存
+- 修剪后 `var/state` 仍超过 3 GB 时写一条告警
+
+可调参数（环境变量或 `etc/config.sh`）：
+
+| 变量 | 默认 | 含义 |
+|---|---|---|
+| `MAINT_STATE_KEEP_DAYS` | `30` | 删除超过 N 天的映射条目 |
+| `MAINT_STATE_KEEP_ITEMS` | `5000` | 单会话条目上限 |
+| `MAINT_STATE_MIN_ITEMS` | `200` | 单会话最少保留条数 |
+| `MAINT_STATE_DRY` | `0` | `1` = 只统计不删除 |
