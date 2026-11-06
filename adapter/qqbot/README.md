@@ -50,6 +50,46 @@
 | 11 | 配置项 | `etc/config.sh`：`QQBOT_APP_ID` / `QQBOT_APP_SECRET` / `QQBOT_API_BASE`；密钥只走环境变量或生产 config，不进仓库 |
 | 12 | 图片缓存 | 富媒体走 `file_info`（`/v2/.../files` 上传后得到），与 `qq` 的本地 `/tmp/img` 不同，不需落盘缓存 |
 
+## 生产 / 开发环境分层
+
+密钥绝不进仓库。`etc/config.sh` 只有空默认值，真实值放在被 `.gitignore` 忽略的文件里：
+
+| 文件 | 是否入库 | 用途 |
+|---|---|---|
+| `etc/config.sh` | 是 | 公共模板 + 环境 overlay 装载逻辑（`AYU_ENV`） |
+| `etc/config.dev.sh` | 是 | 开发环境：`AYU_ENV=dev`，`QQBOT_VERIFY_SIG=0`，不写任何密钥 |
+| `etc/config.prod.example.sh` | 是 | 生产模板，字段齐全、值为占位符 |
+| `etc/config.prod.sh` | 否 | 生产真实配置（AppID/AppSecret/token），`chmod 750` |
+| `etc/config.local.sh` | 否 | 单机临时覆盖 |
+
+`AYU_ENV` 未设置时按文件存在性推断：`etc/config.prod.sh` 存在 → `prod`，否则 `dev`；也可用环境变量强制（如 `docker run -e AYU_ENV=dev`）。生产 overlay 只覆盖 `QQBOT_*`、`_LOG_LEVEL` 等，不改动 `WEBHOOK_SECRET` 与 TG / Discord 已有值。
+
+`QQBOT_VERIFY_SIG`：`auto`（默认，有可运行 helper 才验签）/ `1`（强制验签，helper 缺失即拒绝所有回调，fail-closed）/ `0`（只靠 `?token=`，用于无反代或内网调试）。Ed25519 helper 为 `var/tools/ayu-ed25519`（静态二进制，需 `chmod 755`，否则容器 root 属 "other" 无执行位、报 126）。
+
+## 回调地址与平台配置
+
+开放平台「回调配置」只接受 HTTPS，端口限 80 / 443 / 8080 / 8443，路径任意。Ayu 的 CGI 路由为 `/cgi-bin/router.sh/qqbot`，因此回调地址形如：
+
+```
+https://<你的域名>/cgi-bin/router.sh/qqbot?token=<WEBHOOK_SECRET>
+```
+
+- `qqbot` 段必须与 `qq`（Milky）区分，`router.sh` 用精确 `case` 匹配而非前缀。
+- `?token=` 与 TG / DC 共用 `WEBHOOK_SECRET`，由 `lib/` 的 auth 统一校验；未带 token 返回 403。
+- 保存时平台会立即 POST 一个 `op=13` 验证包，服务端必须回 `{"plain_token":"...","signature":"..."}`，验证通过才算配置成功（签名依赖 `QQBOT_APP_SECRET`，故 AppSecret 必须已部署）。
+- 验证通过后把「Webhook 模式」开关打开；此后事件以 `op=0` 推送，需回 `{"op":12,"d":{}}`。
+
+自检（本机）：
+
+```sh
+curl -sS -X POST 'https://<域名>/cgi-bin/router.sh/qqbot?token=<SECRET>' \
+  -H 'Content-Type: application/json' \
+  -d '{"op":13,"d":{"plain_token":"Arq0D5A61EgUu4OxUvOp","event_ts":"1725442341"}}'
+# → {"plain_token":"Arq0D5A61EgUu4OxUvOp","signature":"87befc99..."}
+```
+
+线上测试位置：群 `995019322`（`@机器人 /ping`）、频道与 C2C 同理；`/ping` `/echo` `/info` 由 `etc/rules` 的 `qqbot:` 前缀规则分发到 `adapter/qqbot/handler.sh`。
+
 ## 目录
 
 - [1. 接入与鉴权](#1-接入与鉴权)

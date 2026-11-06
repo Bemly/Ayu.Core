@@ -3,6 +3,12 @@
 # Patterns are shell globs matched against message text
 # Comments start with #
 
+# Platform-prefixed rules (<platform>:<pattern>) only fire for that adapter.
+# QQ Bot (official) lives in its own ID space, so it gets its own commands.
+qqbot:/ping|qqbot/handler.sh|qqbot_handler_ping
+qqbot:/echo|qqbot/handler.sh|qqbot_handler_echo
+qqbot:/info|qqbot/handler.sh|qqbot_handler_info
+
 /ping|qq/handler.sh|handler_ping
 /echo|qq/handler.sh|handler_echo
 /info|qq/handler.sh|handler_info

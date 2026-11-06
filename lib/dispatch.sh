@@ -16,6 +16,16 @@ dispatch() {
 		[ -z "$_pat" ] && continue
 		case "$_pat" in \#*) continue ;; esac
 
+		# Optional platform prefix: "qqbot:/ping" applies to one platform only.
+		# Without a prefix the rule matches every platform (legacy behaviour).
+		case "$_pat" in
+			qq:*|qqbot:*|telegram:*|discord:*)
+				_pat_pf="${_pat%%:*}"
+				_pat="${_pat#*:}"
+				[ "$_pat_pf" = "$_pf" ] || continue
+				;;
+		esac
+
 		# glob match
 		case "$_txt" in
 			$_pat)

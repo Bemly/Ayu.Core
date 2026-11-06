@@ -47,6 +47,14 @@ cd "$(dirname "$0")/.." || exit 1
 . ./adapter/discord/poll.sh
 . ./adapter/discord/soundboard.sh
 . ./adapter/discord/monetize.sh
+. ./adapter/qqbot/core.sh
+. ./adapter/qqbot/sign.sh
+. ./adapter/qqbot/message.sh
+. ./adapter/qqbot/group.sh
+. ./adapter/qqbot/guild.sh
+. ./adapter/qqbot/asset.sh
+. ./adapter/qqbot/handler.sh
+. ./adapter/qqbot/webhook.sh
 . ./plugin/maint/clean.sh
 . ./test/helper.sh
 . ./test/mock/mock_http.sh

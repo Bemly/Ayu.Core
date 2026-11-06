@@ -13,9 +13,6 @@ QQ_API_BASE="http://${QQ_HOST}:${QQ_PORT}${QQ_PREFIX}api"
 # ---- QQ Bot (Tencent official OpenAPI v2) ----
 # Independent from QQ (Milky) above: AppID/AppSecret auth, HTTPS + webhook callback.
 # See adapter/qqbot/README.md. Secrets stay in env / config.nas.sh, never in the repo.
-QQBOT_APP_ID="${QQBOT_APP_ID:-}"
-QQBOT_APP_SECRET="${QQBOT_APP_SECRET:-}"
-QQBOT_API_BASE="${QQBOT_API_BASE:-https://api.bot.qq.com}"
 
 # ---- Telegram ----
 TG_TOKEN="${TG_TOKEN:-}"
@@ -34,6 +31,19 @@ DC_BOT_ID="${DC_BOT_ID:-}"
 # Proxy for cdn.discordapp.com (set on NAS if blocked, e.g. dchook.bemly.moe/cdn)
 DC_CDN_PROXY="${DC_CDN_PROXY:-}"
 
+# ---- QQ Bot (official, bot.q.qq.com) ----
+# Webhook mode only (no WebSocket gateway). Keep empty in the repo: the
+# production values live in etc/config.prod.sh, which is gitignored.
+QQBOT_APP_ID="${QQBOT_APP_ID:-}"
+QQBOT_APP_SECRET="${QQBOT_APP_SECRET:-}"
+QQBOT_API_BASE="${QQBOT_API_BASE:-https://api.bot.qq.com}"
+# inbound Ed25519 check: auto (when helper+secret exist) | 1 | 0
+QQBOT_VERIFY_SIG="${QQBOT_VERIFY_SIG:-auto}"
+# Optional URL-safe token accepted in place of ?token=<WEBHOOK_SECRET>.
+# Needed because WEBHOOK_SECRET may contain '#' / ';' / '<', which truncate the
+# callback URL before it ever reaches us. Keep empty in the repo.
+QQBOT_WEBHOOK_TOKEN="${QQBOT_WEBHOOK_TOKEN:-}"
+
 # ---- Bot server ----
 BOT_PORT="${BOT_PORT:-6160}"
 BOT_HOST="${BOT_HOST:-0.0.0.0}"
@@ -47,3 +57,17 @@ _LOG_DIR="${_LOG_DIR:-$_HB/var/log}"
 
 # ---- State ----
 _STATE_DIR="${_STATE_DIR:-$_HB/var/state}"
+
+# ---- Environment overlay ----
+# This file only holds template defaults (all secrets empty) and is committed.
+# Real values live in etc/config.<env>.sh:
+#   dev  — committed, fake/mock values, used by test/run.sh and local runs
+#   prod — live credentials, gitignored, never leaves the host
+# AYU_ENV may be exported; otherwise prod is inferred from the presence of
+# etc/config.prod.sh.
+if [ -z "${AYU_ENV:-}" ]; then
+	if [ -f "$_HB/etc/config.prod.sh" ]; then AYU_ENV="prod"; else AYU_ENV="dev"; fi
+fi
+if [ -f "$_HB/etc/config.${AYU_ENV}.sh" ]; then
+	. "$_HB/etc/config.${AYU_ENV}.sh"
+fi

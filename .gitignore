@@ -1,3 +1,6 @@
 .claude/
 var/
 etc/config.nas.sh
+# Live credentials — never committed. See etc/config.prod.example.sh.
+etc/config.prod.sh
+etc/config.local.sh
