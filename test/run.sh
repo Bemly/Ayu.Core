@@ -55,6 +55,7 @@ cd "$(dirname "$0")/.." || exit 1
 . ./adapter/qqbot/asset.sh
 . ./adapter/qqbot/handler.sh
 . ./adapter/qqbot/webhook.sh
+. ./adapter/qqbot/admin.sh
 . ./plugin/maint/clean.sh
 . ./test/helper.sh
 . ./test/mock/mock_http.sh

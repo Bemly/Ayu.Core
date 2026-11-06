@@ -14,6 +14,7 @@
 . "$_HB/adapter/qqbot/core.sh"
 . "$_HB/adapter/qqbot/sign.sh"
 . "$_HB/adapter/qqbot/message.sh"
+. "$_HB/adapter/qqbot/admin.sh"
 
 QQBOT_DEDUP_FILE="${QQBOT_DEDUP_FILE:-${_STATE_DIR:-$_HB/var/state}/qqbot-dedup}"
 QQBOT_DEDUP_MAX="${QQBOT_DEDUP_MAX:-500}"
@@ -203,17 +204,27 @@ qqbot_attachments_text() {
 	done
 }
 
-# qqbot_render_content <text>
+# qqbot_render_content <text> [group_openid]
 # QQ official message content is markdown-ish: mentions are `<@OPENID>` and
 # emoji are `<faceType=4,faceId="",ext="<base64 json>">`. Both are unreadable
 # in a relayed line (a 32-char openid plus a base64 blob per message), so
-# mentions render as `@qq#<first7>` and faces as their `text` field.
+# mentions render as `@<bound nickname>` or `@qq#<first7>`, and faces as their
+# `text` field. A nickname bound by an admin (adapter/qqbot/admin.sh) wins.
 qqbot_render_content() {
-	_qrc_t="$1"
+	_qrc_t="$1" _qrc_gid="$2"
 	_qrc_at="$(printf '%s' "$_qrc_t" | grep -o '<@[A-Za-z0-9!]\{8,\}>' | sed 's/^<@//; s/>$//; s/^!//' | sort -u)"
 	for _qrc_o in $_qrc_at; do
 		_qrc_s="$(printf '%s' "$_qrc_o" | cut -c1-7)"
-		_qrc_t="$(printf '%s' "$_qrc_t" | sed "s/<@!\{0,1\}$_qrc_o>/@qq#$_qrc_s/g")"
+		_qrc_n=""
+		[ -n "$_qrc_gid" ] && _qrc_n="$(qqbot_nick_get "$_qrc_gid" "$_qrc_o")"
+		if [ -n "$_qrc_n" ]; then
+			_qrc_lbl="@$_qrc_n"
+		else
+			_qrc_lbl="@qq#$_qrc_s"
+		fi
+		# sed replacement side: escape \ & and the | delimiter
+		_qrc_lbl="$(printf '%s' "$_qrc_lbl" | sed 's/[\\&|]/\\&/g')"
+		_qrc_t="$(printf '%s' "$_qrc_t" | sed "s/<@!\{0,1\}$_qrc_o>/$_qrc_lbl/g")"
 	done
 	_qrc_ext="$(printf '%s' "$_qrc_t" | grep -o 'ext="[A-Za-z0-9+/=]*"' | sed 's/^ext="//; s/"$//' | sort -u)"
 	for _qrc_b in $_qrc_ext; do
@@ -226,11 +237,11 @@ qqbot_render_content() {
 	printf '%s' "$_qrc_t"
 }
 
-# qqbot_message_text <d> — content plus the attachment text view
+# qqbot_message_text <d> [group_openid] — content plus the attachment text view
 qqbot_message_text() {
 	_qmt_c="$(json_get "$1" content 2>/dev/null)" || _qmt_c=""
 	case "$_qmt_c" in NOTFOUND|null) _qmt_c="" ;; esac
-	_qmt_c="$(qqbot_render_content "$_qmt_c")"
+	_qmt_c="$(qqbot_render_content "$_qmt_c" "$2")"
 	printf '%s' "$_qmt_c$(qqbot_attachments_text "$1")"
 }
 
@@ -246,9 +257,16 @@ qqbot_handle_event() {
 			_qh_gid="$(json_get "$_qh_d" group_openid 2>/dev/null)" || _qh_gid=""
 			_qh_uid="$(json_get "$_qh_a" member_openid 2>/dev/null)" || _qh_uid=""
 			_qh_bot="$(json_get "$_qh_a" bot 2>/dev/null)" || _qh_bot="false"
-			_qh_txt="$(qqbot_message_text "$_qh_d")"
+			_qh_txt="$(qqbot_message_text "$_qh_d" "$_qh_gid")"
 			[ "$_qh_bot" = "true" ] && return 0
 			log_info "qqbot: group $_qh_gid ← $_qh_uid: $_qh_txt"
+			# admin commands (nickname bind / 历史) are consumed here: they are
+			# addressed to the bot, so relaying them to other platforms is noise
+			if qqbot_admin_handle "$_qh_t" "$_qh_d" "$_qh_gid" "$_qh_uid"; then
+				return 0
+			fi
+			qqbot_hist_append "$_qh_gid" \
+				"$(json_get "$_qh_d" id 2>/dev/null)" "$_qh_uid" "$_qh_txt"
 			dispatch "qqbot" "group_message" "$_qh_uid" "$_qh_txt" "$_qh_d"
 			;;
 		C2C_MESSAGE_CREATE)

@@ -94,6 +94,16 @@ _sync_short_id() {
 	printf '%s' "$1" | cut -c1-"$_ssi_len"
 }
 
+# _sync_qqbot_nick <group_openid> <openid> — a display name bound by a group
+# admin (`@bot @someone 昵称`, see adapter/qqbot/admin.sh). Bindings live in
+# var/state/qqbot-nick, so the relay can use them without loading the adapter.
+_sync_qqbot_nick() {
+	[ -n "$1" ] && [ -n "$2" ] || return 0
+	_sqn_f="${_STATE_DIR:-$_HB/var/state}/qqbot-nick/$1"
+	[ -f "$_sqn_f" ] || return 0
+	awk -F '\t' -v id="$2" '$1 == id { print $2; exit }' "$_sqn_f"
+}
+
 _sync_get_sender() {
 	_pf="$1" _raw="$2"
 	case "$_pf" in
@@ -154,7 +164,12 @@ _sync_get_sender() {
 		case "$_id" in ''|NOTFOUND|null) _id="" ;; esac
 		_short="$(_sync_short_id "$_id")"
 		[ -n "$_short" ] || _short="unknown"
-		printf "qq#%s" "$_short"
+		_nick="$(_sync_qqbot_nick "$(json_get "$_raw" group_openid 2>/dev/null)" "$_id")"
+		if [ -n "$_nick" ]; then
+			printf "%s(qq#%s)" "$_nick" "$_short"
+		else
+			printf "qq#%s" "$_short"
+		fi
 		;;
 	discord)
 		_nm="" _id=""

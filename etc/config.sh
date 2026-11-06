@@ -43,6 +43,10 @@ QQBOT_VERIFY_SIG="${QQBOT_VERIFY_SIG:-auto}"
 # Needed because WEBHOOK_SECRET may contain '#' / ';' / '<', which truncate the
 # callback URL before it ever reaches us. Keep empty in the repo.
 QQBOT_WEBHOOK_TOKEN="${QQBOT_WEBHOOK_TOKEN:-}"
+# Group admins allowed to bind nicknames to openids with `@bot @someone 昵称`.
+# Space separated; full openid or a ≥7-char prefix. Member openids are
+# per-group, so an admin id only carries over inside the same group.
+QQBOT_ADMINS="${QQBOT_ADMINS:-9DB40F24307A212B6FE37AA4C0BD1A8E}"
 
 # ---- Bot server ----
 BOT_PORT="${BOT_PORT:-6160}"

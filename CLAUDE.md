@@ -242,6 +242,22 @@ telegram/-100111=telegram/-100222/16553   # TG → TG forum topic
 
 **DC webhook**: `router.sh` now has `discord)` case → `adapter/discord/webhook.sh` → `dc_webhook_handler()` handles PING verification (type=1). Message events require Gateway (WebSocket), unsupported.
 
+### QQ Bot Sender Names / History (2026-11-07)
+
+The official API never returns a nickname — only a per-bot `member_openid`. So every relayed line shows a short id, and a group admin can bind a name to it (`adapter/qqbot/admin.sh`):
+
+```
+@bot @someone 宝宝        # bind by mention
+@bot 291A162 宝宝         # bind by the 7-char prefix seen in relays
+@bot 历史                 # last 5 messages with id + body
+```
+
+- Bindings: `var/state/qqbot-nick/<group_openid>`, one `<openid>\t<nick>` per line; latest wins, unlimited rewrites. Read by both the adapter (`qqbot_nick_get`) and the relay (`_sync_qqbot_nick` in `plugin/sync/common.sh`), so a bound name appears in `qqbot` senders as `宝宝(qq#ABC1234)`.
+- Permissions: only ids in `QQBOT_ADMINS` (`etc/config.sh`, space separated, full openid or ≥7-char prefix) may bind; others get `只有管理员能绑定昵称`. Member openids are per-group, so an admin id is group-scoped.
+- Message log: `var/state/qqbot-hist/<group_openid>`, `<msg_id>\t<openid>\t<text>`, trimmed to `QQBOT_HIST_KEEP` (50). Only group messages are logged; `历史` prints the newest `QQBOT_HIST_SHOW` (5).
+- Admin commands are consumed before `dispatch`/sync, so they are never relayed to TG/DC.
+- `qqbot_render_content` also strips the markdown payload: `<@openid>` → `@<nick>` or `@qq#<first7>`, `<faceType=…,ext="<base64 json>">` → its `text` (e.g. `[聪明]`).
+
 **Discord multipart format** (different from TG):
 ```
 --boundary
