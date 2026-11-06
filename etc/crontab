@@ -12,3 +12,4 @@
 # │ │ │ │ │    script path        function name
 # │ │ │ │ │    ──────────────      ────────────
 */1 * * * *|../plugin/sync/dc-sync.sh|dc_batch_run  # DC per-minute message sync
+17 4 * * *|../plugin/maint/clean.sh|maint_cron  # daily log rotation + stale temp cleanup
