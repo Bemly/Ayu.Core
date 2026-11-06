@@ -288,11 +288,25 @@ test_sync_dc_to_qqbot_loops_are_dropped() {
 	rm -f "$_SYNC_CONF" /tmp/sqb-dc-loop-$$.json
 }
 
+test_sync_sender_shows_short_ids() {
+	assert_eq "$(_sync_get_sender qqbot '{"author":{"member_openid":"291A162D9F19B085571787A9E0F3C0B6"}}')" \
+		"qq#291A162" "qqbot sender = qq# + first7 (no full openid)"
+	assert_eq "$(_sync_get_sender discord '{"author":{"global_name":"Carol","id":"1364458119069175888"}}')" \
+		"Carol(1364458)" "discord sender keeps nickname, id cut to 7"
+	assert_eq "$(_sync_get_sender telegram '{"from":{"first_name":"Bob","id":123456789}}')" \
+		"Bob(1234567)" "telegram sender without username cuts id to 7"
+	assert_eq "$(_sync_get_sender telegram '{"from":{"first_name":"Bob","username":"bob"}}')" \
+		"Bob(@bob)" "telegram @username left as-is"
+	assert_eq "$(_sync_get_sender qq '{"sender_id":"123456789","group_member":{"nickname":"宝宝"}}')" \
+		"宝宝(123456789)" "qq sender keeps full QQ number"
+}
+
 test_sync_qqbot_to_telegram
 test_sync_qqbot_to_discord
 test_sync_qqbot_to_qq_group
 test_sync_qqbot_to_qqbot_group
 test_sync_qqbot_to_qqbot_c2c
+test_sync_sender_shows_short_ids
 test_sync_telegram_to_qqbot_prefix
 test_sync_discord_to_qqbot_prefix
 test_sync_qqbot_image_to_telegram
