@@ -260,6 +260,17 @@ test_qqbot_handler_no_target() {
 	QQBOT_APP_ID="$_oid" QQBOT_APP_SECRET="$_osec"
 }
 
+test_qqbot_render_content() {
+	# mentions and faces are markdown tags in the official payload; a relayed
+	# line must not carry a 32-char openid or a base64 blob
+	assert_eq "$(qqbot_render_content '<@9DB40F24307A212B6FE37AA4C0BD1A8E> 宝宝')" \
+		"@qq#9DB40F2 宝宝" "at-mention → @qq#first7"
+	assert_eq "$(qqbot_render_content '<faceType=4,faceId="",ext="eyJ0ZXh0IjoiW+iBquaYjl0ifQ=="> 好')" \
+		"[聪明] 好" "face ext decoded to its text"
+	assert_eq "$(qqbot_render_content 'plain text')" "plain text" "plain text untouched"
+	assert_eq "$(qqbot_render_content 'x <faceType=1,faceId="14"> y')" "x  y" "face without ext dropped"
+}
+
 # --- run ---
 test_qqbot_configured_false
 test_qqbot_configured_true
@@ -283,3 +294,4 @@ test_qqbot_body_markdown
 test_qqbot_seg_encode
 test_qqbot_handler_echo_strip
 test_qqbot_handler_no_target
+test_qqbot_render_content

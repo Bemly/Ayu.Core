@@ -203,10 +203,34 @@ qqbot_attachments_text() {
 	done
 }
 
+# qqbot_render_content <text>
+# QQ official message content is markdown-ish: mentions are `<@OPENID>` and
+# emoji are `<faceType=4,faceId="",ext="<base64 json>">`. Both are unreadable
+# in a relayed line (a 32-char openid plus a base64 blob per message), so
+# mentions render as `@qq#<first7>` and faces as their `text` field.
+qqbot_render_content() {
+	_qrc_t="$1"
+	_qrc_at="$(printf '%s' "$_qrc_t" | grep -o '<@[A-Za-z0-9!]\{8,\}>' | sed 's/^<@//; s/>$//; s/^!//' | sort -u)"
+	for _qrc_o in $_qrc_at; do
+		_qrc_s="$(printf '%s' "$_qrc_o" | cut -c1-7)"
+		_qrc_t="$(printf '%s' "$_qrc_t" | sed "s/<@!\{0,1\}$_qrc_o>/@qq#$_qrc_s/g")"
+	done
+	_qrc_ext="$(printf '%s' "$_qrc_t" | grep -o 'ext="[A-Za-z0-9+/=]*"' | sed 's/^ext="//; s/"$//' | sort -u)"
+	for _qrc_b in $_qrc_ext; do
+		_qrc_x="$(printf '%s' "$_qrc_b" | base64 -d 2>/dev/null | sed 's/.*"text":"//; s/"}.*//')"
+		[ -n "$_qrc_x" ] || continue
+		_qrc_t="$(printf '%s' "$_qrc_t" | sed "s|<faceType=[^>]*ext=\"$_qrc_b\"[^>]*>|$_qrc_x|g")"
+	done
+	# faces without a decodable ext (or any leftover tag) are dropped
+	_qrc_t="$(printf '%s' "$_qrc_t" | sed 's|<faceType=[^>]*>||g; s|<@[A-Za-z0-9!]\{8,\}>||g')"
+	printf '%s' "$_qrc_t"
+}
+
 # qqbot_message_text <d> — content plus the attachment text view
 qqbot_message_text() {
 	_qmt_c="$(json_get "$1" content 2>/dev/null)" || _qmt_c=""
 	case "$_qmt_c" in NOTFOUND|null) _qmt_c="" ;; esac
+	_qmt_c="$(qqbot_render_content "$_qmt_c")"
 	printf '%s' "$_qmt_c$(qqbot_attachments_text "$1")"
 }
 
