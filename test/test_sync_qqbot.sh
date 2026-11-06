@@ -80,6 +80,45 @@ test_sync_qqbot_to_qqbot_c2c() {
 	rm -f "$_SYNC_CONF"
 }
 
+# Regression: a forward *into* the QQ official bot must keep the source icon
+# and sender prefix. The bug was that the qqbot branch sent the raw `_txt_safe`
+# instead of `_text_safe`, so tg/dc relays arrived as bare text.
+# The send happens inside `$(...)`, i.e. a subshell, so the captured text has
+# to go through a file instead of a variable.
+_sqb_capture_group_send() {
+	: > "$_SQB_STATE/sent"
+	qqbot_message_send_group() {
+		printf '%s' "$2" > "$_SQB_STATE/sent"
+		printf '{"id":"CAP1","timestamp":"2026-11-06T10:00:03+08:00"}'
+	}
+}
+
+_sqb_raw_tg() {
+	printf '%s' '{"message_id":77,"text":"hi","from":{"id":555,"first_name":"Bob","username":"bob"},"chat":{"id":-200}}'
+}
+
+_sqb_raw_dc() {
+	printf '%s' '{"id":"D1","content":"hi","channel_id":"300","author":{"id":"u9","username":"carol","global_name":"Carol"}}'
+}
+
+test_sync_telegram_to_qqbot_prefix() {
+	_sqb_conf 'telegram/-200=qqbot/group/G2'
+	_sqb_capture_group_send
+	sync_handler "telegram" "message" "555" "hi" "$(_sqb_raw_tg)" 2>/dev/null
+	assert_contains "$(cat "$_SQB_STATE/sent" 2>/dev/null)" "✈️ Bob(@bob): hi" "telegram→qqbot keeps ✈️ + sender"
+	. "$_HB/adapter/qqbot/message.sh"
+	rm -f "$_SYNC_CONF"
+}
+
+test_sync_discord_to_qqbot_prefix() {
+	_sqb_conf 'discord/300=qqbot/group/G2'
+	_sqb_capture_group_send
+	sync_handler "discord" "message" "u9" "hi" "$(_sqb_raw_dc)" 2>/dev/null
+	assert_contains "$(cat "$_SQB_STATE/sent" 2>/dev/null)" "👾 Carol(u9): hi" "discord→qqbot keeps 👾 + sender"
+	. "$_HB/adapter/qqbot/message.sh"
+	rm -f "$_SYNC_CONF"
+}
+
 test_sync_qqbot_image_to_telegram() {
 	_sqb_conf 'qqbot/group/G1=telegram/-200'
 	_sqb_stub_download
@@ -133,6 +172,8 @@ test_sync_qqbot_to_discord
 test_sync_qqbot_to_qq_group
 test_sync_qqbot_to_qqbot_group
 test_sync_qqbot_to_qqbot_c2c
+test_sync_telegram_to_qqbot_prefix
+test_sync_discord_to_qqbot_prefix
 test_sync_qqbot_image_to_telegram
 test_sync_qqbot_image_to_discord
 test_sync_qq_recall_to_qqbot
