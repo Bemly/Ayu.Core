@@ -8,6 +8,7 @@
 . "$_HB/plugin/sync/from_qq.sh"
 . "$_HB/plugin/sync/from_tg.sh"
 . "$_HB/plugin/sync/from_dc.sh"
+. "$_HB/plugin/sync/from_qqbot.sh"
 
 sync_handler() {
 	_pf="$1" _evt="$2" _uid="$3" _txt="$4" _raw="$5"
@@ -85,7 +86,7 @@ sync_handler() {
 	fi
 
 	# Loop prevention 1: emoji prefix = already forwarded
-	case "$_txt" in "🐧"*|"✈️"*|"👾"*) return 0 ;; esac
+	case "$_txt" in "🐧"*|"✈️"*|"👾"*|"🅠"*) return 0 ;; esac
 
 	# QQ message_recall to TG/DC deleteMessage
 	if [ "$_evt" = "message_recall" ] && [ "$_pf" = "qq" ]; then
@@ -124,6 +125,7 @@ sync_handler() {
 						case "$_tpf_val" in
 							telegram) tg_deleteMessage "$_tid1" "$_tid2" >/dev/null 2>/dev/null && _ok=1 ;;
 							discord) dc_message_delete "$_tid1" "$_tid2" >/dev/null 2>/dev/null && _ok=1 ;;
+							qqbot) qqbot_message_recall_group "$_tid1" "$_tid2" >/dev/null 2>/dev/null && _ok=1 ;;
 						esac
 						if [ $_ok -eq 1 ]; then
 							log_info "sync: recall qq->$_tpf_val OK gid=$_gid seq=$_seq"
@@ -176,7 +178,7 @@ sync_handler() {
 	# Build prefixed text with sender attribution and emoji icon
 	_sender="$(_sync_get_sender "$_pf" "$_raw")"
 	_sender="$(utf8_decode "$_sender")"
-	case "$_pf" in qq) _icon="🐧" ;; telegram) _icon="✈️" ;; discord) _icon="👾" ;; *) _icon="[$_pf]" ;; esac
+	case "$_pf" in qq) _icon="🐧" ;; telegram) _icon="✈️" ;; discord) _icon="👾" ;; qqbot) _icon="🅠" ;; *) _icon="[$_pf]" ;; esac
 	_text="$_icon $_sender: $_txt"
 		_text_safe="$_icon $_sender: $_txt_safe"
 		_text_dc="$_icon $_sender: $_txt_dc"
@@ -221,28 +223,75 @@ sync_handler() {
 				_resp="$(cat "/tmp/sync-tg-resp-$$" 2>/dev/null)"; rm -f "/tmp/sync-tg-resp-$$"
 				if [ -n "$_resp" ] && [ "$_resp" != "NOTFOUND" ]; then
 					_tmid="$(json_get "$_resp" message_id 2>/dev/null)" || _tmid=""
-					_rseq="$(json_get "$_raw" message_seq 2>/dev/null)" || _rseq=""
+					_rseq="$(_sync_src_msgid "$_pf" "$_raw")"
 					if [ -n "$_tmid" ] && [ -n "$_rseq" ]; then
 						mkdir -p "$_STATE_DIR/msg-map/$_tcid" && chmod 2750 "$_STATE_DIR/msg-map/$_tcid" 2>/dev/null
 						chmod 2750 "$_STATE_DIR/msg-map/$_tcid" 2>/dev/null
-						echo "${_sid#group/} $_rseq" > "$_STATE_DIR/msg-map/$_tcid/$_tmid"
+						echo "${_src_id#*/} $_rseq" > "$_STATE_DIR/msg-map/$_tcid/$_tmid"
 						chmod 640 "$_STATE_DIR/msg-map/$_tcid/$_tmid" 2>/dev/null
-						mkdir -p "$_STATE_DIR/msg-map-rev/${_sid#group/}" && chmod 2750 "$_STATE_DIR/msg-map-rev/${_sid#group/}" 2>/dev/null
-						chmod 2750 "$_STATE_DIR/msg-map-rev/${_sid#group/}" 2>/dev/null
-						echo "telegram $_tcid $_tmid" >> "$_STATE_DIR/msg-map-rev/${_sid#group/}/$_rseq"
-						chmod 640 "$_STATE_DIR/msg-map-rev/${_sid#group/}/$_rseq" 2>/dev/null
+						mkdir -p "$_STATE_DIR/msg-map-rev/${_src_id#*/}" && chmod 2750 "$_STATE_DIR/msg-map-rev/${_src_id#*/}" 2>/dev/null
+						chmod 2750 "$_STATE_DIR/msg-map-rev/${_src_id#*/}" 2>/dev/null
+						echo "telegram $_tcid $_tmid" >> "$_STATE_DIR/msg-map-rev/${_src_id#*/}/$_rseq"
+						chmod 640 "$_STATE_DIR/msg-map-rev/${_src_id#*/}/$_rseq" 2>/dev/null
 					fi
 					log_info "sync: $_pf→tg OK"
 				else
 					log_err "sync: $_pf→tg FAIL: $_ERROR"
 				fi
+			# Forward media (QQ bot→TG)
+			if [ "$_pf" = "qqbot" ]; then
+				_sync_qqbot_media_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender"
+			fi
 			# Forward images (QQ→TG)
 			if [ "$_pf" = "qq" ]; then
 				_sync_qq_images_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender"
 				_sync_qq_record_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender"
 				_sync_qq_video_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender"
-				_sync_qq_files_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender" "${_sid#group/}"
+				_sync_qq_files_to_tg "$_raw" "$_tcid" "$_tthr" "$_sender" "${_src_id#*/}"
 			fi
+			;;
+		qqbot)
+			# QQ official bot as the destination. `_txt_safe` keeps real newlines
+			# (json_obj escapes them), and the reply id is stored in the reverse
+			# map so a recall on the source platform deletes the forwarded copy.
+			_qq_src_seq="$(_sync_src_msgid "$_pf" "$_raw")"
+			case "$_tid" in
+			group/*)
+				_qq_gid="${_tid#group/}"
+				_qq_resp="$(qqbot_message_send_group "$_qq_gid" "$_txt_safe" 2>/dev/null)" || _qq_resp=""
+				if [ -n "$_qq_resp" ] && [ "$_qq_resp" != "NOTFOUND" ]; then
+					log_info "sync: $_pf→qqbot group $_qq_gid OK"
+					_qq_mid="$(json_get "$_qq_resp" id 2>/dev/null)" || _qq_mid=""
+					if [ -n "$_qq_mid" ] && [ -n "$_qq_src_seq" ] && [ "$_qq_mid" != "NOTFOUND" ] && [ "$_qq_src_seq" != "NOTFOUND" ]; then
+						# Reverse maps are keyed by the bare source chat id, matching
+						# the qq/telegram recall paths.
+						_qq_rkey="${_src_id#*/}"
+						mkdir -p "$_STATE_DIR/msg-map-rev/$_qq_rkey"
+						chmod 2750 "$_STATE_DIR/msg-map-rev/$_qq_rkey" 2>/dev/null
+						echo "qqbot $_qq_gid $_qq_mid" >> "$_STATE_DIR/msg-map-rev/$_qq_rkey/$_qq_src_seq"
+						chmod 640 "$_STATE_DIR/msg-map-rev/$_qq_rkey/$_qq_src_seq" 2>/dev/null
+					fi
+				else
+					log_err "sync: $_pf→qqbot group $_qq_gid FAIL: $_ERROR"
+				fi
+				;;
+			private/*)
+				_qq_oid="${_tid#private/}"
+				if qqbot_message_send_c2c "$_qq_oid" "$_txt_safe" >/dev/null 2>/dev/null; then
+					log_info "sync: $_pf→qqbot private $_qq_oid OK"
+				else
+					log_err "sync: $_pf→qqbot private $_qq_oid FAIL: $_ERROR"
+				fi
+				;;
+			channel/*)
+				_qq_ch="${_tid#channel/}"
+				if qqbot_message_send_channel "$_qq_ch" "$_txt_safe" >/dev/null 2>/dev/null; then
+					log_info "sync: $_pf→qqbot channel $_qq_ch OK"
+				else
+					log_err "sync: $_pf→qqbot channel $_qq_ch FAIL: $_ERROR"
+				fi
+				;;
+			esac
 			;;
 		qq)
 			case "$_tid" in
@@ -295,17 +344,13 @@ sync_handler() {
 			if [ -n "$_dc_resp" ] && [ "$_dc_resp" != "NOTFOUND" ]; then
 				log_info "sync: $_pf→dc text OK"
 				_dmid="$(json_get "$_dc_resp" id 2>/dev/null)" || _dmid=""
-				if [ "$_pf" = "telegram" ]; then
-					_rseq="$(json_get "$_raw" message_id 2>/dev/null)" || _rseq=""
-				else
-					_rseq="$(json_get "$_raw" message_seq 2>/dev/null)" || _rseq=""
-				fi
+				_rseq="$(_sync_src_msgid "$_pf" "$_raw")"
 				if [ -n "$_dmid" ] && [ -n "$_rseq" ] && [ "$_dmid" != "NOTFOUND" ] && [ "$_rseq" != "NOTFOUND" ]; then
 					mkdir -p "$_STATE_DIR/msg-map/$_tid" && chmod 2750 "$_STATE_DIR/msg-map/$_tid" 2>/dev/null
-					echo "${_sid#group/} $_rseq" > "$_STATE_DIR/msg-map/$_tid/$_dmid"
+					echo "${_src_id#*/} $_rseq" > "$_STATE_DIR/msg-map/$_tid/$_dmid"
 					chmod 640 "$_STATE_DIR/msg-map/$_tid/$_dmid" 2>/dev/null
-					mkdir -p "$_STATE_DIR/msg-map-rev/${_sid#group/}" && chmod 2750 "$_STATE_DIR/msg-map-rev/${_sid#group/}" 2>/dev/null
-					echo "discord $_tid $_dmid" >> "$_STATE_DIR/msg-map-rev/${_sid#group/}/$_rseq"
+					mkdir -p "$_STATE_DIR/msg-map-rev/${_src_id#*/}" && chmod 2750 "$_STATE_DIR/msg-map-rev/${_src_id#*/}" 2>/dev/null
+					echo "discord $_tid $_dmid" >> "$_STATE_DIR/msg-map-rev/${_src_id#*/}/$_rseq"
 					# If source is TG, also append to QQ rev-map
 					if [ "$_pf" = "telegram" ] && [ -f "/tmp/sync-tg-qq-$$" ]; then
 						read -r _qq_gid _qq_seq < "/tmp/sync-tg-qq-$$"
@@ -313,17 +358,21 @@ sync_handler() {
 						chmod 640 "$_STATE_DIR/msg-map-rev/$_qq_gid/$_qq_seq" 2>/dev/null
 						rm -f "/tmp/sync-tg-qq-$$"
 					fi
-					chmod 640 "$_STATE_DIR/msg-map-rev/${_sid#group/}/$_rseq" 2>/dev/null
+					chmod 640 "$_STATE_DIR/msg-map-rev/${_src_id#*/}/$_rseq" 2>/dev/null
 				fi
 			else
 				log_err "sync: $_pf→dc FAIL: $_ERROR"
+			fi
+			# Forward media (QQ bot→DC)
+			if [ "$_pf" = "qqbot" ]; then
+				_sync_qqbot_media_to_dc "$_raw" "$_tid" "" "$_sender"
 			fi
 			# Forward media (QQ→DC)
 			if [ "$_pf" = "qq" ]; then
 				_sync_qq_images_to_dc "$_raw" "$_tid" "$_sender"
 				_sync_qq_record_to_dc "$_raw" "$_tid" "$_sender"
 				_sync_qq_video_to_dc "$_raw" "$_tid" "$_sender"
-				_sync_qq_files_to_dc "$_raw" "$_tid" "$_sender" "${_sid#group/}"
+				_sync_qq_files_to_dc "$_raw" "$_tid" "$_sender" "${_src_id#*/}"
 			fi
 			# Forward media (TG→DC)
 			if [ "$_pf" = "telegram" ]; then

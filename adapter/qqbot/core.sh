@@ -130,6 +130,32 @@ _qqbot_api() {
 	printf '%s' "$_qaj"
 }
 
+# _qqbot_api_body <path> <body_file> <tag> → JSON on stdout, _ERROR on failure
+# Same contract as _qqbot_api, but the body comes from a file: base64 media
+# uploads (file_data) can reach ~6.7MB and must not travel through a hush
+# variable.
+_qqbot_api_body() {
+	_qabp="$1" _qabf="$2" _qabtag="$3"
+	_qabt="$(qqbot_token)" || return 1
+	_qabout="/tmp/qqbot-api.$$"
+	http_post_file "$QQBOT_API_BASE$_qabp" "$_qabf" \
+		"Content-Type: application/json" \
+		"Authorization: QQBot $_qabt" >"$_qabout" 2>/dev/null
+	_qabrc=$?
+	_qabj="$(cat "$_qabout" 2>/dev/null)"
+	rm -f "$_qabout"
+	if [ $_qabrc -ne 0 ]; then
+		_ERROR="$_qabtag: transport failed (status ${_HTTP_STATUS:-none})"
+		return 1
+	fi
+	_qabc="$(json_get "$_qabj" code 2>/dev/null)" || _qabc=""
+	if [ -n "$_qabc" ] && [ "$_qabc" != "0" ]; then
+		_ERROR="$_qabtag: code=$_qabc msg=$(json_get "$_qabj" message 2>/dev/null) status=${_HTTP_STATUS:-none}"
+		return 1
+	fi
+	printf '%s' "$_qabj"
+}
+
 # Drop the cached token (used on 401 from the platform)
 qqbot_token_invalidate() {
 	rm -f "$QQBOT_TOKEN_FILE" 2>/dev/null
@@ -140,4 +166,62 @@ qqbot_token_invalidate() {
 # but message ids and cursors come from upstream JSON and must not be trusted)
 qqbot_seg() {
 	url_encode "$1"
+}
+
+# ---- sent-message tracking (backs /recall) ------------------------------
+# var/state/qqbot-msg/<scene>/<target>: one "<message_id> <epoch>" per line,
+# newest last. Only the last QQBOT_SENT_KEEP ids are kept — a passive reply
+# window allows 4-5 messages per inbound msg_id, so older ids are unusable
+# anyway and the file stays small.
+
+QQBOT_SENT_KEEP="${QQBOT_SENT_KEEP:-5}"
+
+# qqbot_safe_name <id> — keep ids usable as file names (ids are base64-ish)
+qqbot_safe_name() {
+	printf '%s' "$1" | tr -c 'A-Za-z0-9._@-' '_'
+}
+
+# qqbot_sent_file <scene> <target> → path of that conversation's id log
+qqbot_sent_file() {
+	printf '%s/qqbot-msg/%s/%s' "${_STATE_DIR:-$_HB/var/state}" "$1" "$(qqbot_safe_name "$2")"
+}
+
+# qqbot_track_sent <scene> <target> <api_response>
+qqbot_track_sent() {
+	_qts_scene="$1" _qts_target="$2" _qts_resp="$3"
+	_qts_id="$(json_get "$_qts_resp" id 2>/dev/null)" || _qts_id=""
+	case "$_qts_id" in ''|NOTFOUND|null|'{}') return 0 ;; esac
+	[ -n "$_qts_target" ] || return 0
+	_qts_f="$(qqbot_sent_file "$_qts_scene" "$_qts_target")"
+	_qts_d="${_qts_f%/*}"
+	mkdir -p "$_qts_d" 2>/dev/null && chmod 750 "$_qts_d" 2>/dev/null
+	printf '%s %s\n' "$_qts_id" "$(date +%s)" >>"$_qts_f" 2>/dev/null || return 0
+	_qts_n=0
+	[ -f "$_qts_f" ] && _qts_n="$(wc -l <"$_qts_f" 2>/dev/null)" || _qts_n=0
+	if [ "${_qts_n:-0}" -gt "$QQBOT_SENT_KEEP" ]; then
+		tail -n "$QQBOT_SENT_KEEP" "$_qts_f" >"$_qts_f.tmp.$$" 2>/dev/null \
+			&& mv -f "$_qts_f.tmp.$$" "$_qts_f" 2>/dev/null
+	fi
+	chmod 640 "$_qts_f" 2>/dev/null
+	log_debug "qqbot: tracked msg $_qts_id scene=$_qts_scene"
+	return 0
+}
+
+# qqbot_sent_ids <scene> <target> [n] → message ids, newest first
+qqbot_sent_ids() {
+	_qsi_f="$(qqbot_sent_file "$1" "$2")"
+	[ -f "$_qsi_f" ] || return 0
+	tail -n "${3:-$QQBOT_SENT_KEEP}" "$_qsi_f" 2>/dev/null | awk '
+		{ id[NR] = $1 }
+		END { for (i = NR; i > 0; i--) if (id[i] != "") print id[i] }'
+}
+
+# qqbot_sent_drop <scene> <target> <message_id>
+qqbot_sent_drop() {
+	_qsd_f="$(qqbot_sent_file "$1" "$2")"
+	[ -f "$_qsd_f" ] || return 0
+	grep -v "^$3 " "$_qsd_f" >"$_qsd_f.tmp.$$" 2>/dev/null \
+		&& mv -f "$_qsd_f.tmp.$$" "$_qsd_f" 2>/dev/null
+	chmod 640 "$_qsd_f" 2>/dev/null
+	return 0
 }

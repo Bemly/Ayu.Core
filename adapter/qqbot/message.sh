@@ -48,16 +48,43 @@ qqbot_body_media() {
 
 # ---- group --------------------------------------------------------------
 
-qqbot_message_send_group()      { _qqbot_api POST "/v2/groups/$(qqbot_seg "$1")/messages" "$(qqbot_body_text "$2" "${3:-}" "${4:-}")" "qqbot.group.send"; }
-qqbot_message_send_group_raw()  { _qqbot_api POST "/v2/groups/$(qqbot_seg "$1")/messages" "$2" "qqbot.group.send"; }
-qqbot_message_send_group_md()   { _qqbot_api POST "/v2/groups/$(qqbot_seg "$1")/messages" "$(qqbot_body_markdown "$2" "${3:-}" "${4:-}")" "qqbot.group.send_md"; }
+# Every send wrapper keeps the API response on stdout (ids live there) and
+# records the reply id for /recall. The reply scene decides the state bucket.
+
+qqbot_message_send_group() {
+	_qmg_r="$(_qqbot_api POST "/v2/groups/$(qqbot_seg "$1")/messages" "$(qqbot_body_text "$2" "${3:-}" "${4:-}")" "qqbot.group.send")" || return 1
+	qqbot_track_sent group "$1" "$_qmg_r"
+	printf '%s' "$_qmg_r"
+}
+qqbot_message_send_group_raw()  {
+	_qmgr_r="$(_qqbot_api POST "/v2/groups/$(qqbot_seg "$1")/messages" "$2" "qqbot.group.send")" || return 1
+	qqbot_track_sent group "$1" "$_qmgr_r"
+	printf '%s' "$_qmgr_r"
+}
+qqbot_message_send_group_md()   {
+	_qmgm_r="$(_qqbot_api POST "/v2/groups/$(qqbot_seg "$1")/messages" "$(qqbot_body_markdown "$2" "${3:-}" "${4:-}")" "qqbot.group.send_md")" || return 1
+	qqbot_track_sent group "$1" "$_qmgm_r"
+	printf '%s' "$_qmgm_r"
+}
 qqbot_message_recall_group()    { _qqbot_api DELETE "/v2/groups/$(qqbot_seg "$1")/messages/$(qqbot_seg "$2")" "{}" "qqbot.group.recall" >/dev/null; }
 
 # ---- c2c (single chat) --------------------------------------------------
 
-qqbot_message_send_c2c()        { _qqbot_api POST "/v2/users/$(qqbot_seg "$1")/messages" "$(qqbot_body_text "$2" "${3:-}" "${4:-}")" "qqbot.c2c.send"; }
-qqbot_message_send_c2c_raw()    { _qqbot_api POST "/v2/users/$(qqbot_seg "$1")/messages" "$2" "qqbot.c2c.send"; }
-qqbot_message_send_c2c_md()     { _qqbot_api POST "/v2/users/$(qqbot_seg "$1")/messages" "$(qqbot_body_markdown "$2" "${3:-}" "${4:-}")" "qqbot.c2c.send_md"; }
+qqbot_message_send_c2c() {
+	_qmc_r="$(_qqbot_api POST "/v2/users/$(qqbot_seg "$1")/messages" "$(qqbot_body_text "$2" "${3:-}" "${4:-}")" "qqbot.c2c.send")" || return 1
+	qqbot_track_sent c2c "$1" "$_qmc_r"
+	printf '%s' "$_qmc_r"
+}
+qqbot_message_send_c2c_raw()    {
+	_qmcr_r="$(_qqbot_api POST "/v2/users/$(qqbot_seg "$1")/messages" "$2" "qqbot.c2c.send")" || return 1
+	qqbot_track_sent c2c "$1" "$_qmcr_r"
+	printf '%s' "$_qmcr_r"
+}
+qqbot_message_send_c2c_md()     {
+	_qmcm_r="$(_qqbot_api POST "/v2/users/$(qqbot_seg "$1")/messages" "$(qqbot_body_markdown "$2" "${3:-}" "${4:-}")" "qqbot.c2c.send_md")" || return 1
+	qqbot_track_sent c2c "$1" "$_qmcm_r"
+	printf '%s' "$_qmcm_r"
+}
 qqbot_message_recall_c2c()      { _qqbot_api DELETE "/v2/users/$(qqbot_seg "$1")/messages/$(qqbot_seg "$2")" "{}" "qqbot.c2c.recall" >/dev/null; }
 
 # qqbot_message_stream_c2c <user_openid> <content> [msg_id] [msg_seq] [index] [stream_id] [state]
@@ -100,4 +127,100 @@ qqbot_message_send_group_media() {
 qqbot_message_send_c2c_media() {
 	_qqbot_api POST "/v2/users/$(qqbot_seg "$1")/messages" \
 		"$(qqbot_body_media "$2" "${3:-}" "${4:-}" "${5:-}")" "qqbot.c2c.media"
+}
+
+# ---- guild recall -------------------------------------------------------
+
+qqbot_message_recall_channel() {
+	_qqbot_api DELETE "/channels/$(qqbot_seg "$1")/messages/$(qqbot_seg "$2")?hidetip=false" "{}" "qqbot.channel.recall" >/dev/null
+}
+
+# ---- local-file upload (file_data, <= 5MB) ------------------------------
+# The platform takes binary media either as a public URL or as a base64
+# `file_data` field capped at 5MB; larger files need the chunked flow
+# (upload_prepare + presigned PUT), which is not wired yet. Keeping this a
+# plain base64 body means no extra dependency: /bin/base64 is a busybox applet.
+
+QQBOT_FILE_DATA_MAX="${QQBOT_FILE_DATA_MAX:-5242880}"
+
+# qqbot_file_type_of <path> → 1 image, 2 video, 3 voice, 4 file
+qqbot_file_type_of() {
+	case "$1" in
+		*.png|*.PNG|*.jpg|*.JPG|*.jpeg|*.JPEG|*.gif|*.GIF|*.webp|*.WEBP|*.bmp|*.BMP) printf '1' ;;
+		*.mp4|*.MP4|*.mov|*.MOV|*.mkv|*.MKV) printf '2' ;;
+		*.silk|*.SILK|*.amr|*.AMR|*.mp3|*.MP3|*.wav|*.WAV|*.ogg|*.OGG|*.m4a|*.M4A) printf '3' ;;
+		*) printf '4' ;;
+	esac
+}
+
+# _qqbot_filedata_body <file_type> <path> <file_name> <srv_send_msg> → body file
+_qqbot_filedata_body() {
+	_qfb_t="$1" _qfb_p="$2" _qfb_n="$3" _qfb_s="$4"
+	_qfb_out="/tmp/qqbot-filedata.$$"
+	printf '{"file_type":%s,"file_name":' "$_qfb_t" >"$_qfb_out" || {
+		_ERROR="qqbot.file: cannot stage body"; return 1
+	}
+	json_escape "$_qfb_n" >>"$_qfb_out"
+	printf ',"srv_send_msg":%s,"file_data":"' "$_qfb_s" >>"$_qfb_out"
+	base64 <"$_qfb_p" 2>/dev/null | tr -d '\n' >>"$_qfb_out" || {
+		rm -f "$_qfb_out"; _ERROR="qqbot.file: base64 failed"; return 1
+	}
+	printf '"}' >>"$_qfb_out"
+	printf '%s' "$_qfb_out"
+}
+
+# qqbot_file_upload_group_data <group_openid> <file_type> <path> [file_name] [srv_send_msg]
+qqbot_file_upload_group_data() {
+	_qgd_ty="$2" _qgd_p="$3" _qgd_n="${4:-}" _qgd_s="${5:-false}"
+	[ -f "$_qgd_p" ] || { _ERROR="qqbot.group.file: no such file $_qgd_p"; return 1; }
+	[ -n "$_qgd_n" ] || _qgd_n="${_qgd_p##*/}"
+	_qgd_sz="$(wc -c <"$_qgd_p" 2>/dev/null)" || _qgd_sz=0
+	if [ "${_qgd_sz:-0}" -gt "$QQBOT_FILE_DATA_MAX" ]; then
+		_ERROR="qqbot.group.file: $_qgd_sz bytes > ${QQBOT_FILE_DATA_MAX} (file_data cap)"
+		return 1
+	fi
+	_qgd_b="$(_qqbot_filedata_body "$_qgd_ty" "$_qgd_p" "$_qgd_n" "$_qgd_s")" || return 1
+	_qgd_r="$(_qqbot_api_body "/v2/groups/$(qqbot_seg "$1")/files" "$_qgd_b" "qqbot.group.file")" || {
+		_qgd_rc=$?; rm -f "$_qgd_b"; return $_qgd_rc
+	}
+	rm -f "$_qgd_b"
+	[ "$_qgd_s" = "true" ] && qqbot_track_sent group "$1" "$_qgd_r"
+	printf '%s' "$_qgd_r"
+}
+
+# qqbot_file_upload_c2c_data <user_openid> <file_type> <path> [file_name] [srv_send_msg]
+qqbot_file_upload_c2c_data() {
+	_qcd_ty="$2" _qcd_p="$3" _qcd_n="${4:-}" _qcd_s="${5:-false}"
+	[ -f "$_qcd_p" ] || { _ERROR="qqbot.c2c.file: no such file $_qcd_p"; return 1; }
+	[ -n "$_qcd_n" ] || _qcd_n="${_qcd_p##*/}"
+	_qcd_sz="$(wc -c <"$_qcd_p" 2>/dev/null)" || _qcd_sz=0
+	if [ "${_qcd_sz:-0}" -gt "$QQBOT_FILE_DATA_MAX" ]; then
+		_ERROR="qqbot.c2c.file: $_qcd_sz bytes > ${QQBOT_FILE_DATA_MAX} (file_data cap)"
+		return 1
+	fi
+	_qcd_b="$(_qqbot_filedata_body "$_qcd_ty" "$_qcd_p" "$_qcd_n" "$_qcd_s")" || return 1
+	_qcd_r="$(_qqbot_api_body "/v2/users/$(qqbot_seg "$1")/files" "$_qcd_b" "qqbot.c2c.file")" || {
+		_qcd_rc=$?; rm -f "$_qcd_b"; return $_qcd_rc
+	}
+	rm -f "$_qcd_b"
+	[ "$_qcd_s" = "true" ] && qqbot_track_sent c2c "$1" "$_qcd_r"
+	printf '%s' "$_qcd_r"
+}
+
+# qqbot_send_group_file <group_openid> <path> [content] [msg_id] [msg_seq]
+# Upload then send as msg_type=7 media in one call — the usual "attach a file"
+# path for handlers and sync.
+qqbot_send_group_file() {
+	_qsgf_resp="$(qqbot_file_upload_group_data "$1" "$(qqbot_file_type_of "$2")" "$2" "" false)" || return 1
+	_qsgf_fi="$(json_get "$_qsgf_resp" file_info 2>/dev/null)" || _qsgf_fi=""
+	case "$_qsgf_fi" in ''|NOTFOUND|null) _ERROR="qqbot.group.file: no file_info in response"; return 1 ;; esac
+	qqbot_message_send_group_media "$1" "$_qsgf_fi" "${3:-}" "${4:-}" "${5:-}"
+}
+
+# qqbot_send_c2c_file <user_openid> <path> [content] [msg_id] [msg_seq]
+qqbot_send_c2c_file() {
+	_qscf_resp="$(qqbot_file_upload_c2c_data "$1" "$(qqbot_file_type_of "$2")" "$2" "" false)" || return 1
+	_qscf_fi="$(json_get "$_qscf_resp" file_info 2>/dev/null)" || _qscf_fi=""
+	case "$_qscf_fi" in ''|NOTFOUND|null) _ERROR="qqbot.c2c.file: no file_info in response"; return 1 ;; esac
+	qqbot_message_send_c2c_media "$1" "$_qscf_fi" "${3:-}" "${4:-}" "${5:-}"
 }

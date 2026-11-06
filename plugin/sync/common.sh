@@ -134,6 +134,17 @@ _sync_get_sender() {
 		[ -z "$_id" ] && _id="$_id"
 		printf "%s(%s)" "$_nm" "$_id"
 		;;
+	qqbot)
+		# Official webhook events carry no nickname — only an openid.
+		_a="$(json_get "$_raw" author 2>/dev/null)" || _a=""
+		_id="$(json_get "$_a" member_openid 2>/dev/null)" || _id=""
+		case "$_id" in ''|NOTFOUND|null) _id="$(json_get "$_a" user_openid 2>/dev/null)" ;; esac
+		case "$_id" in ''|NOTFOUND|null) _id="$(json_get "$_a" id 2>/dev/null)" ;; esac
+		case "$_id" in ''|NOTFOUND|null) _id="" ;; esac
+		_short="$(printf '%s' "$_id" | cut -c1-6)"
+		[ -n "$_short" ] || _short="unknown"
+		printf "qq#%s(%s)" "$_short" "$_id"
+		;;
 	discord)
 		_nm="" _id=""
 		_author="$(json_get "$_raw" author 2>/dev/null)" || _author=""
@@ -152,6 +163,18 @@ _sync_get_sender() {
 		printf "%s(%s)" "$_nm" "$_id"
 		;;
 	*) printf "unknown" ;;
+	esac
+}
+
+# _sync_src_msgid <platform> <raw> — the source platform's own message id
+# (QQ uses message_seq, TG message_id, DC/QQ-bot id). Reverse maps are keyed on
+# it so a recall on the source platform can delete the forwarded copies.
+_sync_src_msgid() {
+	case "$1" in
+		qq)       json_get "$2" message_seq 2>/dev/null ;;
+		telegram) json_get "$2" message_id 2>/dev/null ;;
+		discord)  json_get "$2" id 2>/dev/null ;;
+		qqbot)    json_get "$2" id 2>/dev/null ;;
 	esac
 }
 
@@ -176,6 +199,19 @@ _sync_source_id() {
 		# private messages
 		_pid="$(json_get "$_raw" peer_id 2>/dev/null)" || _pid=""
 		[ -n "$_pid" ] && [ "$_pid" != "NOTFOUND" ] && printf 'private/%s' "$_pid"
+		;;
+	qqbot)
+		_gid="$(json_get "$_raw" group_openid 2>/dev/null)" || _gid=""
+		case "$_gid" in ''|NOTFOUND|null) _gid="" ;; esac
+		if [ -n "$_gid" ]; then printf 'group/%s' "$_gid"; return; fi
+		_ch="$(json_get "$_raw" channel_id 2>/dev/null)" || _ch=""
+		case "$_ch" in ''|NOTFOUND|null) _ch="" ;; esac
+		if [ -n "$_ch" ]; then printf 'channel/%s' "$_ch"; return; fi
+		_au="$(json_get "$_raw" author 2>/dev/null)" || _au=""
+		_oid="$(json_get "$_au" user_openid 2>/dev/null)" || _oid=""
+		case "$_oid" in ''|NOTFOUND|null) _oid="$(json_get "$_au" id 2>/dev/null)" ;; esac
+		case "$_oid" in ''|NOTFOUND|null) _oid="" ;; esac
+		[ -n "$_oid" ] && printf 'private/%s' "$_oid"
 		;;
 	telegram)
 		_chat="$(json_get "$_raw" chat 2>/dev/null)" || _chat=""

@@ -8,6 +8,7 @@
 qqbot:/ping|qqbot/handler.sh|qqbot_handler_ping
 qqbot:/echo|qqbot/handler.sh|qqbot_handler_echo
 qqbot:/info|qqbot/handler.sh|qqbot_handler_info
+qqbot:/recall|qqbot/handler.sh|qqbot_handler_recall
 
 /ping|qq/handler.sh|handler_ping
 /echo|qq/handler.sh|handler_echo

@@ -140,6 +140,76 @@ qqbot_webhook_event() {
 	return 0
 }
 
+# ---- inbound attachments ------------------------------------------------
+
+# qqbot_attachment_kind <content_type> → Chinese label used in the text view
+qqbot_attachment_kind() {
+	case "$1" in
+		voice|audio/*) printf '语音' ;;
+		image/*)       printf '图片' ;;
+		video/*)       printf '视频' ;;
+		*)             printf '文件' ;;
+	esac
+}
+
+# qqbot_fmt_size <bytes> → 512B / 12KB / 3MB
+qqbot_fmt_size() {
+	case "$1" in ''|*[!0-9]*) return 0 ;; esac
+	if [ "$1" -ge 1048576 ]; then
+		printf '%sMB' "$(( $1 / 1048576 ))"
+	elif [ "$1" -ge 1024 ]; then
+		printf '%sKB' "$(( $1 / 1024 ))"
+	else
+		printf '%sB' "$1"
+	fi
+}
+
+# qqbot_attachments_text <d>
+# Media arrives only as URLs in `attachments` (openids carry no nickname and
+# there are no segments), so handing handlers/sync a readable text view is the
+# only way a picture or a voice note can be forwarded or acted on. Every item
+# renders as one line, `\n`-joined to match the project's text convention:
+#   \n[图片] a.png (12KB) https://...
+#   \n[语音] (34KB) https://...wav asr=你好
+qqbot_attachments_text() {
+	_qat_raw="$(json_get "$1" attachments 2>/dev/null)" || _qat_raw=""
+	case "$_qat_raw" in ''|NOTFOUND|null|'[]') return 0 ;; esac
+	printf '%s' "$_qat_raw" | sed 's/},{/}\
+{/g' | while IFS= read -r _qat_it; do
+		[ -n "$_qat_it" ] || continue
+		_qat_ct="$(json_get "$_qat_it" content_type 2>/dev/null)" || _qat_ct=""
+		_qat_url="$(json_get "$_qat_it" url 2>/dev/null)" || _qat_url=""
+		_qat_wav="$(json_get "$_qat_it" voice_wav_url 2>/dev/null)" || _qat_wav=""
+		_qat_fn="$(json_get "$_qat_it" filename 2>/dev/null)" || _qat_fn=""
+		_qat_sz="$(json_get "$_qat_it" size 2>/dev/null)" || _qat_sz=""
+		_qat_asr="$(json_get "$_qat_it" asr_refer_text 2>/dev/null)" || _qat_asr=""
+		case "$_qat_ct" in
+			voice*|audio/*)
+				[ -n "$_qat_wav" ] && [ "$_qat_wav" != "NOTFOUND" ] && _qat_url="$_qat_wav"
+				;;
+		esac
+		case "$_qat_url" in NOTFOUND|null) _qat_url="" ;; esac
+		case "$_qat_fn" in NOTFOUND|null) _qat_fn="" ;; esac
+		case "$_qat_asr" in NOTFOUND|null) _qat_asr="" ;; esac
+		_qat_line="\n[$(qqbot_attachment_kind "$_qat_ct")]"
+		[ -n "$_qat_fn" ] && _qat_line="$_qat_line $_qat_fn"
+		case "$_qat_sz" in
+			''|*[!0-9]*) : ;;
+			*) _qat_line="$_qat_line ($(qqbot_fmt_size "$_qat_sz"))" ;;
+		esac
+		[ -n "$_qat_url" ] && _qat_line="$_qat_line $_qat_url"
+		[ -n "$_qat_asr" ] && _qat_line="$_qat_line asr=$_qat_asr"
+		printf '%s' "$_qat_line"
+	done
+}
+
+# qqbot_message_text <d> — content plus the attachment text view
+qqbot_message_text() {
+	_qmt_c="$(json_get "$1" content 2>/dev/null)" || _qmt_c=""
+	case "$_qmt_c" in NOTFOUND|null) _qmt_c="" ;; esac
+	printf '%s' "$_qmt_c$(qqbot_attachments_text "$1")"
+}
+
 # ---- event → dispatch ---------------------------------------------------
 
 # qqbot_handle_event <t> <d> <raw>
@@ -152,7 +222,7 @@ qqbot_handle_event() {
 			_qh_gid="$(json_get "$_qh_d" group_openid 2>/dev/null)" || _qh_gid=""
 			_qh_uid="$(json_get "$_qh_a" member_openid 2>/dev/null)" || _qh_uid=""
 			_qh_bot="$(json_get "$_qh_a" bot 2>/dev/null)" || _qh_bot="false"
-			_qh_txt="$(json_get "$_qh_d" content 2>/dev/null)" || _qh_txt=""
+			_qh_txt="$(qqbot_message_text "$_qh_d")"
 			[ "$_qh_bot" = "true" ] && return 0
 			log_info "qqbot: group $_qh_gid ← $_qh_uid: $_qh_txt"
 			dispatch "qqbot" "group_message" "$_qh_uid" "$_qh_txt" "$_qh_d"
@@ -160,7 +230,7 @@ qqbot_handle_event() {
 		C2C_MESSAGE_CREATE)
 			_qh_a="$(json_get "$_qh_d" author 2>/dev/null)" || _qh_a=""
 			_qh_uid="$(json_get "$_qh_a" user_openid 2>/dev/null)" || _qh_uid=""
-			_qh_txt="$(json_get "$_qh_d" content 2>/dev/null)" || _qh_txt=""
+			_qh_txt="$(qqbot_message_text "$_qh_d")"
 			log_info "qqbot: c2c ← $_qh_uid: $_qh_txt"
 			dispatch "qqbot" "c2c_message" "$_qh_uid" "$_qh_txt" "$_qh_d"
 			;;
@@ -168,14 +238,14 @@ qqbot_handle_event() {
 			_qh_a="$(json_get "$_qh_d" author 2>/dev/null)" || _qh_a=""
 			_qh_uid="$(json_get "$_qh_a" id 2>/dev/null)" || _qh_uid=""
 			_qh_bot="$(json_get "$_qh_a" bot 2>/dev/null)" || _qh_bot="false"
-			_qh_txt="$(json_get "$_qh_d" content 2>/dev/null)" || _qh_txt=""
+			_qh_txt="$(qqbot_message_text "$_qh_d")"
 			[ "$_qh_bot" = "true" ] && return 0
 			dispatch "qqbot" "channel_message" "$_qh_uid" "$_qh_txt" "$_qh_d"
 			;;
 		DIRECT_MESSAGE_CREATE)
 			_qh_a="$(json_get "$_qh_d" author 2>/dev/null)" || _qh_a=""
 			_qh_uid="$(json_get "$_qh_a" id 2>/dev/null)" || _qh_uid=""
-			_qh_txt="$(json_get "$_qh_d" content 2>/dev/null)" || _qh_txt=""
+			_qh_txt="$(qqbot_message_text "$_qh_d")"
 			dispatch "qqbot" "direct_message" "$_qh_uid" "$_qh_txt" "$_qh_d"
 			;;
 		INTERACTION_CREATE)
