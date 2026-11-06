@@ -2,7 +2,7 @@
 
 [![test](https://github.com/Bemly/Ayu.Core/actions/workflows/test.yml/badge.svg)](https://github.com/Bemly/Ayu.Core/actions/workflows/test.yml)
 
-Pure shell SNS Bot framework. Runs in busybox:musl container, hush + httpd CGI + raw TLS transport + [hush-json](https://github.com/Bemly/hush-json).
+Pure shell SNS Bot framework. Runs in busybox:musl container, hush + httpd CGI + raw TLS transport + [hush-json](https://github.com/Bemly/hush-json) + [hush-ed25519](https://github.com/Bemly/hush-ed25519).
 
 > [中文文档](README.zh.md)
 
@@ -40,6 +40,8 @@ Ayu.Core/
 │   └── sync/               # Cross-platform sync + dc-sync.sh (crond entry)
 ├── webui/                  # Dashboard (native HTML/CSS/JS, backed by cgi-bin/api.sh)
 ├── etc/                    # config, rules, crontab, sync.conf, README
+├── hush-json/              # submodule — JSON in POSIX sh
+├── hush-ed25519/           # submodule — Ed25519 sign/verify in shell + busybox awk
 └── test/                   # 141 tests, 0 failures (mock_http, no API keys)
 ```
 

@@ -2,7 +2,7 @@
 
 [![test](https://github.com/Bemly/Ayu.Core/actions/workflows/test.yml/badge.svg)](https://github.com/Bemly/Ayu.Core/actions/workflows/test.yml)
 
-纯 shell SNS Bot 框架。运行在 busybox:musl 容器中，hush + httpd CGI + 原生 TLS 传输 + [hush-json](https://github.com/Bemly/hush-json)。
+纯 shell SNS Bot 框架。运行在 busybox:musl 容器中，hush + httpd CGI + 原生 TLS 传输 + [hush-json](https://github.com/Bemly/hush-json) + [hush-ed25519](https://github.com/Bemly/hush-ed25519)。
 
 > [English](README.md)
 
@@ -39,6 +39,8 @@ Ayu.Core/
 │   └── sync/               # 跨平台同步 + dc-sync.sh (crond 定时入口)
 ├── webui/                  # 面板（原生 HTML/CSS/JS，数据来自 cgi-bin/api.sh）
 ├── etc/                    # config, rules, crontab, sync.conf, README
+├── hush-json/              # submodule — POSIX sh 实现的 JSON
+├── hush-ed25519/           # submodule — shell + busybox awk 实现的 Ed25519 签名/验签
 └── test/                   # 141 tests, 0 failures (mock_http, 无需 API key)
 ```
 

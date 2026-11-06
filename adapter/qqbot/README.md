@@ -64,7 +64,7 @@
 
 `AYU_ENV` 未设置时按文件存在性推断：`etc/config.prod.sh` 存在 → `prod`，否则 `dev`；也可用环境变量强制（如 `docker run -e AYU_ENV=dev`）。生产 overlay 只覆盖 `QQBOT_*`、`_LOG_LEVEL` 等，不改动 `WEBHOOK_SECRET` 与 TG / Discord 已有值。
 
-`QQBOT_VERIFY_SIG`：`auto`（默认，有可运行 helper 才验签）/ `1`（强制验签，helper 缺失即拒绝所有回调，fail-closed）/ `0`（只靠 `?token=`，用于无反代或内网调试）。Ed25519 helper 为 `var/tools/ayu-ed25519`（静态二进制，需 `chmod 755`，否则容器 root 属 "other" 无执行位、报 126）。
+`QQBOT_VERIFY_SIG`：`auto`（默认，有可运行 helper 才验签）/ `1`（强制验签，helper 缺失即拒绝所有回调，fail-closed）/ `0`（只靠 `?token=`，用于无反代或内网调试）。Ed25519 实现来自 submodule `hush-ed25519`（纯 shell + BusyBox awk，无二进制、无需编译）：验签需镜像内具备 `awk`、`sha512sum`、`xxd`、`dd`（`busybox:musl` 均自带），缺失时 `auto` 自动降级为仅 `?token=` 校验。
 
 ## 回调地址与平台配置
 

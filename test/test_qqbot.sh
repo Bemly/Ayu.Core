@@ -7,8 +7,8 @@
 
 _QQBOT_TMP="$_HB/var/tmp-test-qqbot"
 mkdir -p "$_QQBOT_TMP" 2>/dev/null
-QQBOT_DEDUP_FILE="$_QQBOT_TMP/dedup"
-QQBOT_TOKEN_FILE="$_QQBOT_TMP/token.json"
+QQBOT_DEDUP_FILE="$_QQBOT_TMP/dedup.$$"
+QQBOT_TOKEN_FILE="$_QQBOT_TMP/token.$$.json"
 test_purge "$QQBOT_DEDUP_FILE" 2>/dev/null
 test_purge "$QQBOT_TOKEN_FILE" 2>/dev/null
 
@@ -36,8 +36,8 @@ test_qqbot_op13_vector() {
 	# Official demo vector from the QQ Bot docs.
 	_oid="$QQBOT_APP_ID" _osec="$QQBOT_APP_SECRET"
 	QQBOT_APP_ID="1900000000" QQBOT_APP_SECRET="DG5g3B4j9X2KOErG"
-	if ! qqbot_sign_bin_usable; then
-		# helper not runnable in this image: nothing to verify here
+	if ! qqbot_ed_usable; then
+		# hush-ed25519 not available in this image: nothing to verify here
 		:
 	else
 		_body='{"op":13,"d":{"plain_token":"Arq0D5A61EgUu4OxUvOp","event_ts":"1725442341"}}'

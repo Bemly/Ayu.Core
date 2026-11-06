@@ -10,7 +10,7 @@
 QQBOT_API_BASE="${QQBOT_API_BASE:-https://api.bot.qq.com}"
 QQBOT_TOKEN_FILE="${QQBOT_TOKEN_FILE:-${_STATE_DIR:-$_HB/var/state}/qqbot-token.json}"
 QQBOT_TOKEN_SKEW="${QQBOT_TOKEN_SKEW:-60}"      # refresh this many seconds early
-QQBOT_ED25519_BIN="${QQBOT_ED25519_BIN:-$_HB/var/tools/ayu-ed25519}"
+QQBOT_ED25519_HOME="${QQBOT_ED25519_HOME:-$_HB/hush-ed25519}"
 QQBOT_VERIFY_SIG="${QQBOT_VERIFY_SIG:-auto}"    # auto | 1 | 0
 
 # qqbot_configured → 0 when AppID + AppSecret are present

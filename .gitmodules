@@ -2,3 +2,7 @@
 	path = hush-json
 	url = https://github.com/Bemly/hush-json.git
 	branch = main
+[submodule "hush-ed25519"]
+	path = hush-ed25519
+	url = https://github.com/Bemly/hush-ed25519.git
+	branch = main

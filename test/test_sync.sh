@@ -239,7 +239,7 @@ test_sync_qq_recall_to_tg() {
 	rm -f "$_SYNC_CONF"
 }
 
-test_sync_qq_voice_to_tg
+test_sync_qq_record_to_tg
 test_sync_qq_video_to_tg
 test_sync_tg_voice_to_qq
 test_sync_tg_video_to_qq
