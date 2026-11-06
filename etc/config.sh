@@ -10,6 +10,13 @@ QQ_TOKEN="${QQ_TOKEN:-}"
 # QQ API base URL
 QQ_API_BASE="http://${QQ_HOST}:${QQ_PORT}${QQ_PREFIX}api"
 
+# ---- QQ Bot (Tencent official OpenAPI v2) ----
+# Independent from QQ (Milky) above: AppID/AppSecret auth, HTTPS + webhook callback.
+# See adapter/qqbot/README.md. Secrets stay in env / config.nas.sh, never in the repo.
+QQBOT_APP_ID="${QQBOT_APP_ID:-}"
+QQBOT_APP_SECRET="${QQBOT_APP_SECRET:-}"
+QQBOT_API_BASE="${QQBOT_API_BASE:-https://api.bot.qq.com}"
+
 # ---- Telegram ----
 TG_TOKEN="${TG_TOKEN:-}"
 TG_API_HOST="${TG_API_HOST:-api.telegram.org}"

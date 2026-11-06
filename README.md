@@ -11,6 +11,7 @@ Pure shell SNS Bot framework. Runs in busybox:musl container, hush + httpd CGI +
 | Platform | Endpoints | Functions | Reference |
 |----------|-----------|-----------|-----------|
 | QQ (Milky / LLOneBot) | 29/29 | 27 | [adapter/qq/README.md](adapter/qq/README.md) |
+| QQ Bot (Official OpenAPI v2, webhook) | 46 spec | — | [adapter/qqbot/README.md](adapter/qqbot/README.md) |
 | Telegram Bot API | 169/169 | 169 | [adapter/telegram/README.md](adapter/telegram/README.md) |
 | Discord REST API v10 | 185 bot API | 135 | [adapter/discord/README.md](adapter/discord/README.md) |
 
@@ -31,7 +32,8 @@ Ayu.Core/
 │   ├── log.sh              # Leveled logging (debug/info/warn/err)
 │   └── url.sh              # url_encode/decode + utf8_decode (\uXXXX→UTF-8)
 ├── adapter/                # Platform adapters
-│   ├── qq/                 # QQ — 6 files, 15 segment types, 8 event types
+│   ├── qq/                 # QQ (Milky) — 6 files, 15 segment types, 8 event types
+│   ├── qqbot/              # QQ Bot official OpenAPI v2 — webhook callback, 46 APIs / 22 events (spec)
 │   ├── telegram/           # Telegram — 17 files, 20 Update types, 18 content types
 │   └── discord/            # Discord — 18 files, 135 functions (REST + webhook)
 ├── plugin/                 # Business logic
