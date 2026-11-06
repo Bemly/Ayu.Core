@@ -251,14 +251,15 @@ sync_handler() {
 			fi
 			;;
 		qqbot)
-			# QQ official bot as the destination. `_txt_safe` keeps real newlines
-			# (json_obj escapes them), and the reply id is stored in the reverse
-			# map so a recall on the source platform deletes the forwarded copy.
+			# QQ official bot as the destination. `_text_safe` keeps real newlines
+			# plus the source icon/sender prefix (json_obj escapes them), and the
+			# reply id is stored in the reverse map so a recall on the source
+			# platform deletes the forwarded copy.
 			_qq_src_seq="$(_sync_src_msgid "$_pf" "$_raw")"
 			case "$_tid" in
 			group/*)
 				_qq_gid="${_tid#group/}"
-				_qq_resp="$(qqbot_message_send_group "$_qq_gid" "$_txt_safe" 2>/dev/null)" || _qq_resp=""
+				_qq_resp="$(qqbot_message_send_group "$_qq_gid" "$_text_safe" 2>/dev/null)" || _qq_resp=""
 				if [ -n "$_qq_resp" ] && [ "$_qq_resp" != "NOTFOUND" ]; then
 					log_info "sync: $_pf→qqbot group $_qq_gid OK"
 					_qq_mid="$(json_get "$_qq_resp" id 2>/dev/null)" || _qq_mid=""
@@ -277,7 +278,7 @@ sync_handler() {
 				;;
 			private/*)
 				_qq_oid="${_tid#private/}"
-				if qqbot_message_send_c2c "$_qq_oid" "$_txt_safe" >/dev/null 2>/dev/null; then
+				if qqbot_message_send_c2c "$_qq_oid" "$_text_safe" >/dev/null 2>/dev/null; then
 					log_info "sync: $_pf→qqbot private $_qq_oid OK"
 				else
 					log_err "sync: $_pf→qqbot private $_qq_oid FAIL: $_ERROR"
@@ -285,7 +286,7 @@ sync_handler() {
 				;;
 			channel/*)
 				_qq_ch="${_tid#channel/}"
-				if qqbot_message_send_channel "$_qq_ch" "$_txt_safe" >/dev/null 2>/dev/null; then
+				if qqbot_message_send_channel "$_qq_ch" "$_text_safe" >/dev/null 2>/dev/null; then
 					log_info "sync: $_pf→qqbot channel $_qq_ch OK"
 				else
 					log_err "sync: $_pf→qqbot channel $_qq_ch FAIL: $_ERROR"
