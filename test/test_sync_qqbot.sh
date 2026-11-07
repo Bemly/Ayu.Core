@@ -119,6 +119,51 @@ test_sync_discord_to_qqbot_prefix() {
 	rm -f "$_SYNC_CONF"
 }
 
+test_sync_qqbot_attach_url_unescapes_amp() {
+	# The webhook JSON carries '&' as \u0026 inside attachment URLs; sending it
+	# raw made the CDN read one broken parameter pair → retcode -5503010.
+	_it='{"content_type":"image/jpeg","url":"https://cdn.qq.com/a.jpg?appid=1407\u0026fileid=ABC\u0026rkey=R1"}'
+	assert_eq "$(_qqbot_attach_url "$_it")" \
+		"https://cdn.qq.com/a.jpg?appid=1407&fileid=ABC&rkey=R1" \
+		"attachment url has \\u0026 decoded"
+	_vit='{"content_type":"voice","url":"https://cdn.qq.com/v.silk","voice_wav_url":"https://cdn.qq.com/v.wav?a=1\u0026b=2"}'
+	assert_eq "$(_qqbot_attach_url "$_vit")" "https://cdn.qq.com/v.wav?a=1&b=2" \
+		"voice wav url has \\u0026 decoded"
+}
+
+test_sync_qqbot_bad_download_detected() {
+	_bad="$_SQB_STATE/bad.json"
+	printf '%s' '{"retcode":-5503010,"retmsg":"invalid rkey"}' > "$_bad"
+	_qqbot_bad_download "$_bad"
+	assert_ok "CDN error body detected"
+	_good="$_SQB_STATE/good.jpg"
+	printf '\377\330\377\340FAKEJPEGBYTES' > "$_good"
+	_qqbot_bad_download "$_good"
+	assert_fail "real jpeg not flagged"
+	_big="$_SQB_STATE/big.json"
+	{ printf '{"retmsg":"'; head -c 5000 /dev/zero | tr '\0' 'x'; printf '"}'; } > "$_big"
+	_qqbot_bad_download "$_big"
+	assert_fail "large json (>4KB) not treated as error body"
+}
+
+test_sync_qqbot_cdn_error_body_not_forwarded() {
+	_sqb_conf 'qqbot/group/G1=telegram/-200'
+	# Download succeeds at the transport level but the body is the CDN error.
+	http_get_file() {
+		mkdir -p "$(dirname "$2")" 2>/dev/null
+		printf '%s' '{"retcode":-5503010,"retmsg":"invalid rkey"}' > "$2"
+		return 0
+	}
+	mock_req_reset
+	mock_set '{"ok":true,"result":{"message_id":99}}'
+	_log="$(sync_handler "qqbot" "group_message" "MEM1" "[图片] a.png" "$(_sqb_raw_att)" 2>&1)"
+	assert_contains "$_log" "CDN error body" "download logs the CDN error body"
+	assert_not_contains "$(mock_last_req)" "sendPhoto" "error body is not uploaded as a photo"
+	assert_not_contains "$(mock_last_req)" "sendDocument" "error body is not uploaded as a document"
+	_sqb_restore_download
+	rm -f "$_SYNC_CONF"
+}
+
 test_sync_qqbot_image_to_telegram() {
 	_sqb_conf 'qqbot/group/G1=telegram/-200'
 	_sqb_stub_download
@@ -306,6 +351,9 @@ test_sync_qqbot_to_discord
 test_sync_qqbot_to_qq_group
 test_sync_qqbot_to_qqbot_group
 test_sync_qqbot_to_qqbot_c2c
+test_sync_qqbot_attach_url_unescapes_amp
+test_sync_qqbot_bad_download_detected
+test_sync_qqbot_cdn_error_body_not_forwarded
 test_sync_sender_shows_short_ids
 test_sync_telegram_to_qqbot_prefix
 test_sync_discord_to_qqbot_prefix

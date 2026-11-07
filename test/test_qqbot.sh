@@ -202,6 +202,52 @@ test_qqbot_api_business_code() {
 	QQBOT_APP_ID="$_oid" QQBOT_APP_SECRET="$_osec"
 }
 
+test_qqbot_api_retcode_is_error() {
+	_oid="$QQBOT_APP_ID" _osec="$QQBOT_APP_SECRET"
+	test_purge "$QQBOT_TOKEN_FILE" 2>/dev/null
+	QQBOT_APP_ID="123456" QQBOT_APP_SECRET="secret"
+	mock_set '{"access_token":"tok","expires_in":7200}'
+	qqbot_token_refresh >/dev/null 2>&1
+	# CDN-side failures answer HTTP 200 with retcode/retmsg and no `code` field.
+	# Treating that as success surfaced later as an empty "no file_info" log.
+	mock_set '{"retcode":-5503010,"retmsg":"invalid rkey"}'
+	_qqbot_api_body "/v2/groups/G1/files" '{}' "qqbot.test"
+	assert_fail "retcode in response treated as failure"
+	assert_contains "$_ERROR" "retcode=-5503010" "_ERROR carries retcode"
+	assert_contains "$_ERROR" "invalid rkey" "_ERROR carries retmsg"
+	mock_set '{"retcode":0,"file_info":"ok"}'
+	_out="$(_qqbot_api_body "/v2/groups/G1/files" '{}' "qqbot.test")"
+	assert_eq "$_out" '{"retcode":0,"file_info":"ok"}' "retcode=0 stays success"
+	mock_set '{}'
+	test_purge "$QQBOT_TOKEN_FILE" 2>/dev/null
+	QQBOT_APP_ID="$_oid" QQBOT_APP_SECRET="$_osec"
+}
+
+test_qqbot_api_http_status_is_error() {
+	_oid="$QQBOT_APP_ID" _osec="$QQBOT_APP_SECRET"
+	test_purge "$QQBOT_TOKEN_FILE" 2>/dev/null
+	QQBOT_APP_ID="123456" QQBOT_APP_SECRET="secret"
+	mock_set '{"access_token":"tok","expires_in":7200}'
+	qqbot_token_refresh >/dev/null 2>&1
+	MOCK_HTTP_STATUS=500
+	mock_set '{"message":"internal"}'
+	_qqbot_api_body "/v2/groups/G1/files" '{}' "qqbot.test"
+	assert_fail "non-2xx response treated as failure"
+	assert_contains "$_ERROR" "http=500" "_ERROR carries http status"
+	MOCK_HTTP_STATUS=200
+	mock_set '{}'
+	test_purge "$QQBOT_TOKEN_FILE" 2>/dev/null
+	QQBOT_APP_ID="$_oid" QQBOT_APP_SECRET="$_osec"
+}
+
+test_qqbot_resp_digest_flattens() {
+	_d="$(_qqbot_resp_digest '{"retcode":-1,
+"retmsg":"bad	rkey"}')"
+	assert_not_contains "$_d" "
+" "digest is single line"
+	assert_contains "$_d" 'retmsg' "digest keeps body content"
+}
+
 test_qqbot_api_transport_fail() {
 	_oid="$QQBOT_APP_ID" _osec="$QQBOT_APP_SECRET"
 	QQBOT_APP_ID="123456" QQBOT_APP_SECRET="secret"

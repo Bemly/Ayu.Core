@@ -117,6 +117,15 @@ _qqbot_note_err() {
 	return 0
 }
 
+# _qqbot_resp_digest <json> — one-line, bounded copy of a response body for logs.
+# QQ answers business errors both as {"code":..,"message":..} and, from the
+# media/CDN side, as {"retcode":..,"retmsg":..}; a bare "no file_info" hides
+# which one happened, so failures carry the body itself (clipped, newlines
+# flattened) into both _ERROR and $QQBOT_ERR_FILE.
+_qqbot_resp_digest() {
+	printf '%s' "$1" | tr '\r\n\t' '   ' | cut -c1-200
+}
+
 # _qqbot_api <METHOD> <path> <body> <tag> → JSON on stdout, _ERROR on failure
 # Rejects responses carrying a non-zero business `code` (QQ answers 200 even
 # for auth/permission errors, so the HTTP status alone is not enough).
@@ -135,10 +144,25 @@ _qqbot_api() {
 	_qac="$(json_get "$_qaj" code 2>/dev/null)" || _qac=""
 	if [ -n "$_qac" ] && [ "$_qac" != "0" ]; then
 		_qam2="$(json_get "$_qaj" message 2>/dev/null)" || _qam2=""
-		_ERROR="$_qatag: code=$_qac msg=$_qam2 status=${_HTTP_STATUS:-none}"
+		_ERROR="$_qatag: code=$_qac msg=$_qam2 status=${_HTTP_STATUS:-none} body=$(_qqbot_resp_digest "$_qaj")"
 		_qqbot_note_err "$_ERROR"
 		return 1
 	fi
+	# The media/CDN half of the API reports {"retcode":N,"retmsg":"..."} with
+	# HTTP 200 and no `code` field. Without this check such a failure looked
+	# like success and surfaced later as an empty "no file_info" log line.
+	_qarc2="$(json_get "$_qaj" retcode 2>/dev/null)" || _qarc2=""
+	case "$_qarc2" in ''|0|NOTFOUND|null) ;; *)
+		_ERROR="$_qatag: retcode=$_qarc2 retmsg=$(json_get "$_qaj" retmsg 2>/dev/null) status=${_HTTP_STATUS:-none}"
+		_qqbot_note_err "$_ERROR"
+		return 1 ;;
+	esac
+	case "${_HTTP_STATUS:-200}" in
+		2??) ;;
+		*) _ERROR="$_qatag: http=${_HTTP_STATUS:-none} body=$(_qqbot_resp_digest "$_qaj")"
+		   _qqbot_note_err "$_ERROR"
+		   return 1 ;;
+	esac
 	printf '%s' "$_qaj"
 }
 

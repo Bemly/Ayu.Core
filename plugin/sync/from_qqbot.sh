@@ -24,6 +24,10 @@ _qqbot_attach_url() {
 			;;
 	esac
 	case "$_qbu_u" in NOTFOUND|null) _qbu_u="" ;; esac
+	# The webhook JSON escapes '&' as \u0026 in attachment URLs. Left encoded,
+	# the CDN sees a single broken parameter pair ("?appid=..\u0026fileid=..")
+	# and answers {"retcode":-5503010,"retmsg":"invalid rkey"} instead of bytes.
+	[ -n "$_qbu_u" ] && _qbu_u="$(utf8_decode "$_qbu_u")"
 	printf '%s' "$_qbu_u"
 }
 
@@ -103,6 +107,21 @@ _qqbot_sniff_ct() {
 	esac
 }
 
+# _qqbot_bad_download <path> — 0 when the saved body is an error document.
+# A rejected CDN request still returns HTTP 200 with a small JSON error, so
+# http_get_file "succeeds" and the 58-byte {"retcode":...} blob used to be
+# forwarded to TG/DC as if it were the picture. Real media never starts with '{'
+# and is bigger than a few dozen bytes, hence the cheap shape test.
+_qqbot_bad_download() {
+	_qbd_sz="$(wc -c <"$1" 2>/dev/null | tr -d ' ')"
+	case "$_qbd_sz" in ''|*[!0-9]*) return 1 ;; esac
+	[ "$_qbd_sz" -gt 0 ] || return 1
+	[ "$_qbd_sz" -lt 4096 ] || return 1
+	[ "$(head -c 1 "$1" 2>/dev/null)" = "{" ] || return 1
+	grep -q '"retcode"\|"retmsg"' "$1" 2>/dev/null || return 1
+	return 0
+}
+
 # _sync_qqbot_media <tg|dc> <raw d> <cid> <thread> <sender>
 # Returns 0 if at least one attachment was relayed.
 _sync_qqbot_media() {
@@ -117,6 +136,7 @@ _sync_qqbot_media() {
 		[ -n "$_qbm_it" ] || continue
 		_qbm_ct="$(json_get "$_qbm_it" content_type 2>/dev/null)" || _qbm_ct=""
 		_qbm_fn="$(json_get "$_qbm_it" filename 2>/dev/null)" || _qbm_fn=""
+		[ -n "$_qbm_fn" ] && _qbm_fn="$(utf8_decode "$_qbm_fn")"
 		case "$_qbm_fn" in ''|NOTFOUND|null) _qbm_fn="qqbot-${_qbm_n}" ;; esac
 		_qbm_url="$(_qqbot_attach_url "$_qbm_it")"
 		if [ -z "$_qbm_url" ]; then
@@ -127,6 +147,11 @@ _sync_qqbot_media() {
 		_qbm_tmp="/tmp/img/sync-qqbot-$$-$_qbm_n"
 		if ! http_get_file "$_qbm_url" "$_qbm_tmp"; then
 			log_err "sync: qqbot→$_qbm_pf download FAIL ct=$_qbm_ct: $_ERROR"
+			rm -f "$_qbm_tmp"
+			continue
+		fi
+		if _qqbot_bad_download "$_qbm_tmp"; then
+			log_err "sync: qqbot→$_qbm_pf item $_qbm_n CDN error body size=$(wc -c <"$_qbm_tmp" 2>/dev/null | tr -d ' '): $(tr '\r\n\t' '   ' <"$_qbm_tmp" 2>/dev/null | cut -c1-200)"
 			rm -f "$_qbm_tmp"
 			continue
 		fi
