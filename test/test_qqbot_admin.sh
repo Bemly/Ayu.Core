@@ -65,6 +65,19 @@ test_qqbot_admin_rebind_rewrites() {
 		"{\"content\":\"<@!0000000000000000000000000000000B> <@!$_QA_P> 宝子\"}" G1 "$_QA_ADMIN"
 	assert_eq "$(qqbot_nick_get G1 "$_QA_P")" "宝子" "latest binding wins"
 	assert_eq "$(wc -l < "$_QA_STATE/qqbot-nick/G1")" "1" "no duplicate line"
+	assert_contains "$_QA_REPLY" "已修改昵称" "rename reported as a change"
+	assert_contains "$_QA_REPLY" "宝宝 → 宝子" "old and new names shown"
+	_qa_unsetup
+}
+
+test_qqbot_admin_rebind_same_name() {
+	_qa_setup
+	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
+		"{\"content\":\"<@!0000000000000000000000000000000B> <@!$_QA_P> 宝宝\"}" G1 "$_QA_ADMIN"
+	assert_contains "$_QA_REPLY" "已绑定" "first bind says bound"
+	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
+		"{\"content\":\"<@!0000000000000000000000000000000B> <@!$_QA_P> 宝宝\"}" G1 "$_QA_ADMIN"
+	assert_contains "$_QA_REPLY" "昵称未变化" "same value reported as unchanged"
 	_qa_unsetup
 }
 

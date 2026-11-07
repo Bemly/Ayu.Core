@@ -219,11 +219,21 @@ qqbot_admin_handle() {
 		qqbot_reply_event "$_qam_d" "找不到 $_qam_tgt 对应的成员（让他先发一句话，或用完整 openid）"
 		return 0
 	fi
+	_qam_old="$(qqbot_nick_get "$_qam_gid" "$_qam_oid")"
 	if ! qqbot_nick_set "$_qam_gid" "$_qam_oid" "$_qam_nick"; then
 		qqbot_reply_event "$_qam_d" "绑定失败：无法写入映射"
 		return 1
 	fi
-	qqbot_reply_event "$_qam_d" "已绑定 qq#$(printf '%s' "$_qam_oid" | cut -c1-7) = $_qam_nick"
-	log_info "qqbot: admin $_qam_uid bound $(printf '%s' "$_qam_oid" | cut -c1-7) = $_qam_nick"
+	_qam_short=$(printf '%s' "$_qam_oid" | cut -c1-7)
+	if [ -z "$_qam_old" ]; then
+		qqbot_reply_event "$_qam_d" "已绑定 qq#$_qam_short = $_qam_nick"
+		log_info "qqbot: admin $_qam_uid bound qq#$_qam_short = $_qam_nick"
+	elif [ "$_qam_old" = "$_qam_nick" ]; then
+		qqbot_reply_event "$_qam_d" "昵称未变化：qq#$_qam_short = $_qam_nick"
+		log_info "qqbot: admin $_qam_uid nickname unchanged qq#$_qam_short = $_qam_nick"
+	else
+		qqbot_reply_event "$_qam_d" "已修改昵称 qq#$_qam_short：$_qam_old → $_qam_nick"
+		log_info "qqbot: admin $_qam_uid renamed qq#$_qam_short: $_qam_old -> $_qam_nick"
+	fi
 	return 0
 }
