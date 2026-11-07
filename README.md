@@ -10,10 +10,31 @@ Pure shell SNS Bot framework. Runs in busybox:musl container, hush + httpd CGI +
 
 | Platform | Endpoints | Functions | Reference |
 |----------|-----------|-----------|-----------|
-| QQ (Milky / LLOneBot) | 29/29 | 27 | [adapter/qq/README.md](adapter/qq/README.md) |
-| QQ Bot (Official OpenAPI v2, webhook) | 46 spec | — | [adapter/qqbot/README.md](adapter/qqbot/README.md) |
-| Telegram Bot API | 169/169 | 169 | [adapter/telegram/README.md](adapter/telegram/README.md) |
-| Discord REST API v10 | 185 bot API | 135 | [adapter/discord/README.md](adapter/discord/README.md) |
+| QQ (Milky / LLOneBot) | 29/29 | 39 | [adapter/qq/README.md](adapter/qq/README.md) |
+| QQ Bot (Official OpenAPI v2, webhook) | 46 HTTP APIs / 22 events (20 handled) | 125 | [adapter/qqbot/README.md](adapter/qqbot/README.md) |
+| Telegram Bot API | 169/169 | 175 | [adapter/telegram/README.md](adapter/telegram/README.md) |
+| Discord REST API v10 | 185 bot API | 143 | [adapter/discord/README.md](adapter/discord/README.md) |
+
+Function counts are `grep -cE '^[a-z_]+\(\)'` over each adapter directory. Full protocol references live in
+[adapter/qq/README.md](adapter/qq/README.md) (370 lines, Milky API) and
+[adapter/qqbot/README.md](adapter/qqbot/README.md) (10 chapters, official OpenAPI v2 + webhook).
+
+### QQ Bot at a glance
+
+| Item | Value |
+|------|-------|
+| Callback path | `/cgi-bin/router.sh/qqbot` (exact segment — `/qqbotxxx` is rejected, `/qq` stays separate) |
+| Transport | HTTPS API + webhook callback (the WebSocket gateway is **not** implemented) |
+| Outbound auth | `Authorization: QQBot <access_token>` — `POST /app/getAppAccessToken`, cached and refreshed ahead of expiry |
+| Inbound auth | `?token=<WEBHOOK_SECRET>` (or `QQBOT_WEBHOOK_TOKEN`) **plus** Ed25519 `X-Signature-Ed25519` / `X-Signature-Timestamp` |
+| URL verification | `op=13` → echo `plain_token` + `signature` |
+| Event ACK | `op=0` → `{"op":12,"d":{}}` (platform retries unless ACKed) |
+| ID space | `openid` / `group_openid` only — never QQ numbers |
+| Code | 9 files / 125 functions under `adapter/qqbot/` |
+| Tests | 130 of the 400 tests exercise this adapter |
+
+`QQBOT_VERIFY_SIG` selects the verification mode: `auto` (on when the secret and the Ed25519 helper are present),
+`1` (fail closed — unsigned callbacks are rejected), `0` (off, not recommended).
 
 ## Architecture
 
@@ -32,17 +53,17 @@ Ayu.Core/
 │   ├── log.sh              # Leveled logging (debug/info/warn/err)
 │   └── url.sh              # url_encode/decode + utf8_decode (\uXXXX→UTF-8)
 ├── adapter/                # Platform adapters
-│   ├── qq/                 # QQ (Milky) — 6 files, 15 segment types, 8 event types
-│   ├── qqbot/              # QQ Bot official OpenAPI v2 — webhook callback, 46 APIs / 22 events (spec)
-│   ├── telegram/           # Telegram — 17 files, 20 Update types, 18 content types
-│   └── discord/            # Discord — 18 files, 135 functions (REST + webhook)
+│   ├── qq/                 # QQ (Milky) — 7 files, 39 functions, 15 segment types, 8 event types
+│   ├── qqbot/              # QQ Bot official OpenAPI v2 — 9 files, 125 functions, webhook + Ed25519
+│   ├── telegram/           # Telegram — 17 files, 175 functions, 20 Update types, 18 content types
+│   └── discord/            # Discord — 19 files, 143 functions (REST + webhook)
 ├── plugin/                 # Business logic
-│   └── sync/               # Cross-platform sync + dc-sync.sh (crond entry)
+│   └── sync/               # Cross-platform sync (QQ/QQBot/TG/DC) + dc-sync.sh (crond entry)
 ├── webui/                  # Dashboard (native HTML/CSS/JS, backed by cgi-bin/api.sh)
 ├── etc/                    # config, rules, crontab, sync.conf, README
 ├── hush-json/              # submodule — JSON in POSIX sh
 ├── hush-ed25519/           # submodule — Ed25519 sign/verify in shell + busybox awk
-└── test/                   # 141 tests, 0 failures (mock_http, no API keys)
+└── test/                   # 400 tests, 0 failures (mock_http, no API keys)
 ```
 
 ## Quick Start
@@ -65,6 +86,19 @@ curl -X POST http://localhost:6160/cgi-bin/router.sh/telegram \
   -H 'Content-Type: application/json' \
   -d '{"update_id":1,"message":{"from":{"id":111},"chat":{"id":222},"text":"/ping"}}'
 # → {"status":"ok"}
+
+# QQ Bot webhook — URL verification (op=13)
+curl -X POST 'http://localhost:6160/cgi-bin/router.sh/qqbot?token=<WEBHOOK_SECRET>' \
+  -H 'Content-Type: application/json' \
+  -d '{"op":13,"d":{"plain_token":"Arq0D5A61EgUu4OxUvOp","event_ts":"1725442341"}}'
+# → {"plain_token":"...","signature":"..."}
+
+# QQ Bot webhook — event ACK (op=0, requires a valid Ed25519 signature)
+curl -X POST 'http://localhost:6160/cgi-bin/router.sh/qqbot?token=<WEBHOOK_SECRET>' \
+  -H 'Content-Type: application/json' \
+  -H 'X-Signature-Ed25519: <sig>' -H 'X-Signature-Timestamp: <ts>' \
+  -d '{"op":0,"t":"GROUP_AT_MESSAGE_CREATE","id":"EVENT_ID","d":{}}'
+# → {"op":12,"d":{}}      (bad signature → 401, bad token → 403)
 ```
 
 ## Configuration
@@ -73,22 +107,49 @@ curl -X POST http://localhost:6160/cgi-bin/router.sh/telegram \
 # etc/config.sh — all values can be overridden via environment variables
 QQ_HOST="host.docker.internal"   # bridge: host.docker.internal, host: 127.0.0.1
 QQ_PORT="616"
-QQ_TOKEN=""                      # set via env or config.nas.sh
+QQ_TOKEN=""                      # set via env or the prod overlay
 
 TG_TOKEN=""                      # Bot token from @BotFather
 TG_API_HOST="api.telegram.org"   # use a CF Worker for network accessibility
 TG_API_SECRET=""                 # X-Ayu-Token header for edge authentication
+TG_BOT_ID=""                     # bot's own id — skip self, avoid loops
 
 DC_TOKEN=""
-DC_BOT_ID=""                     # Set to skip forwarding bot's own messages (loop prevention)
+DC_BOT_ID=""                     # skip the bot's own messages (loop prevention)
+DC_CDN_PROXY=""                  # proxy for cdn.discordapp.com when blocked
+
+# --- QQ Bot (official OpenAPI v2, webhook only) ---
+QQBOT_APP_ID=""                  # AppID from q.qq.com
+QQBOT_APP_SECRET=""              # AppSecret — also the Ed25519 seed for callbacks
+QQBOT_API_BASE="https://api.bot.qq.com"
+QQBOT_VERIFY_SIG="auto"          # auto | 1 (fail closed) | 0 (off)
+QQBOT_WEBHOOK_TOKEN=""           # URL-safe token; use when WEBHOOK_SECRET contains # < ;
+QQBOT_BOT_OPENID=""              # bot's own openid — full-stream commands must @ it
+QQBOT_ADMINS=""                  # openids allowed to bind nicknames (space separated, >=7-char prefix)
 
 BOT_PORT="6160"
 WEBHOOK_SECRET=""                # if set, require ?token=<secret> in webhook URL
 _LOG_LEVEL="1"                   # 0=trace, 1=info, 2=warn, 3=err
 ```
 
-> Never commit secrets. Use `etc/config.nas.sh` (gitignored) for production values.  
-> See `etc/config.nas.sh` for full production example.
+> Never commit secrets. The repository ships `etc/config.sh` with empty defaults only.
+> Production values live in `etc/config.prod.sh` (gitignored, sourced when `AYU_ENV=prod`);
+> start from `etc/config.prod.example.sh`. `etc/config.dev.sh` / `etc/config.local.sh` cover
+> the other profiles, and `etc/config.prod.sh` wins over `etc/config.sh` key by key.
+
+QQ Bot keys in detail:
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `QQBOT_APP_ID` | empty | AppID from the QQ open platform |
+| `QQBOT_APP_SECRET` | empty | AppSecret; also the Ed25519 seed for callback verification |
+| `QQBOT_API_BASE` | `https://api.bot.qq.com` | API root (override for a proxy) |
+| `QQBOT_VERIFY_SIG` | `auto` | `auto` / `1` fail closed / `0` off |
+| `QQBOT_WEBHOOK_TOKEN` | empty | URL-safe token for `/qqbot`, overrides `WEBHOOK_SECRET` |
+| `QQBOT_BOT_OPENID` | empty | bot's own openid; full-stream commands must @ it |
+| `QQBOT_ADMINS` | one id in `etc/config.sh` | openids allowed to bind nicknames (space separated, `>=7`-char prefix ok) |
+| `QQBOT_HIST_KEEP` | `50` | history lines kept per conversation |
+| `QQBOT_HIST_SHOW` | `5` | lines returned by `@bot 历史` |
 
 ## Platform APIs
 
@@ -106,6 +167,12 @@ tg_sendMessage "222" "hello world" "HTML"
 # --- Discord ---
 . ./adapter/discord/message.sh
 dc_message_create "ch1" '{"content":"hello"}'
+
+# --- QQ Bot (official) ---
+. ./adapter/qqbot/message.sh
+qqbot_message_send_group "<group_openid>" "$(qqbot_body_text 'hello')"
+qqbot_message_send_c2c   "<user_openid>"  "$(qqbot_body_text 'hello')"
+qqbot_message_recall_group "<group_openid>" "<msg_id>"
 ```
 
 ## Message Dispatch
@@ -113,12 +180,27 @@ dc_message_create "ch1" '{"content":"hello"}'
 `etc/rules` — one rule per line: `<pattern>|<handler_file>|<handler_func>`
 
 ```
+qqbot:/ping|qqbot/handler.sh|qqbot_handler_ping
+qqbot:/echo|qqbot/handler.sh|qqbot_handler_echo
+qqbot:/info|qqbot/handler.sh|qqbot_handler_info
+qqbot:/recall|qqbot/handler.sh|qqbot_handler_recall
 /ping|qq/handler.sh|handler_ping
 /echo|qq/handler.sh|handler_echo
+/info|qq/handler.sh|handler_info
 *|../plugin/sync/handler.sh|sync_handler
 ```
 
 Rules are matched first-to-last. Commands match first; the `*` fallback forwards to cross-platform sync.
+
+A rule may carry an optional `<platform>:` prefix — `qq:`, `qqbot:`, `telegram:`, `discord:` — and then only fires
+for that platform. **A rule without a prefix matches every platform** (legacy behaviour), which is why the old
+`/ping|qq/handler.sh|handler_ping` style also fires on qqbot events. Prefix platform-specific commands:
+
+| Rule | Platforms | Effect |
+|------|-----------|--------|
+| `qqbot:/ping` | qqbot only | official-bot built-in command |
+| `qq:/ping` | QQ (Milky) only | Milky adapter command |
+| `/ping` | all four | fires everywhere — avoid for platform-specific handlers |
 
 ## Plugin System
 
@@ -163,11 +245,70 @@ discord/ch123456=telegram/-100111              # DC channel → TG (daily batch)
 
 **Loop prevention**: `👾` emoji prefix + bot sender ID check (`DC_BOT_ID` env var). DC→QQ/TG forwarding skips messages authored by the bot itself.
 
+### QQ Bot (official) Sync
+
+| Direction | Method | Media | Trigger |
+|-----------|--------|-------|---------|
+| qqbot → TG | Real-time | Text, image, file, voice (WAV transcode preferred), video | Webhook |
+| qqbot → DC | Real-time | Text, image, file, voice, video | Webhook |
+| TG → qqbot | Real-time | Text, image, file, voice, video | `*` rule |
+| DC → qqbot | Daily batch | Text only | Cron → `dc-sync.sh` |
+| qqbot recall → TG/DC | Real-time | rev-map lookup | Webhook |
+
+Official callbacks carry media only as `attachments` (`url` + `content_type`, no local path, no segments), so each
+item is downloaded once and re-uploaded through the existing multipart helpers. The relay is best-effort: a failed
+attachment is logged and the text message still goes out.
+
+Senders are rendered as `🅠 nick(qq#ABC1234)` — the official API never returns a nickname, only a per-bot
+`member_openid`, so group admins bind names with `@bot @someone 宝宝` (see below).
+
+`etc/sync.conf` targets and sources:
+
+```
+qqbot/group/<group_openid>=telegram/-100111      # qqbot group → TG
+qqbot/group/<group_openid>=discord/ch123456      # qqbot group → DC
+telegram/-100111=qqbot/group/<group_openid>      # TG → qqbot group
+telegram/-100111=qqbot/private/<user_openid>     # TG → qqbot C2C
+discord/ch123456=qqbot/channel/<channel_id>      # DC → qqbot channel
+```
+
+### QQ Bot Nicknames & History
+
+The official API never returns a display name, so relays show a short id until an admin binds one:
+
+```
+@bot @someone 宝宝        # bind by mention
+@bot 291A162 宝宝         # bind by the 7-char prefix seen in relays
+@bot 历史                 # last 5 messages, id + body
+```
+
+Bindings live in `var/state/qqbot-nick/<group_openid>` (`<openid>\t<nick>`, latest wins, unlimited rewrites) and are
+read by both the adapter and the relay. Message history lives in `var/state/qqbot-hist/<group_openid>`
+(`<msg_id>\t<openid>\t<text>`), trimmed to `QQBOT_HIST_KEEP` (50); `历史` prints the newest `QQBOT_HIST_SHOW` (5).
+Only ids listed in `QQBOT_ADMINS` may bind; admin commands are consumed before dispatch, so they never reach sync.
+
 ## Webhook Auth
 
-Set `WEBHOOK_SECRET` to require `?token=<secret>` in all webhook URLs. Router returns 403 without it.
+Set `WEBHOOK_SECRET` to require `?token=<secret>` in all webhook URLs. Failure is a real HTTP error, never a 200
+with a 403 body (the platform treats 200 as delivered and stops retrying):
 
-The token supports special characters (`#`, `<`, `;`) via URL encoding — `url_encode`/`url_decode` handle encoding automatically.
+| Case | Status |
+|------|--------|
+| missing / wrong token | `403` |
+| body over the size cap | `413` |
+| upstream unavailable / config broken | `503` |
+| qqbot callback with a bad Ed25519 signature | `401` |
+| accepted | `200` (`{"op":12,"d":{}}` for qqbot events) |
+
+**QQ Bot uses its own token**: `QQBOT_WEBHOOK_TOKEN` takes precedence over `WEBHOOK_SECRET` for `/qqbot`. Use it when
+`WEBHOOK_SECRET` contains `#`, `<`, `;` — those characters truncate the callback URL on the platform side, and
+`QQBOT_WEBHOOK_TOKEN` is restricted to `[A-Za-z0-9_-]` on purpose.
+
+**Ed25519**: every qqbot callback is verified with the AppSecret-derived key (`hush-ed25519` submodule) against
+`X-Signature-Ed25519` + `X-Signature-Timestamp`. `op=13` (URL verification) is answered before the event path and
+also returns a signature. Verification follows `QQBOT_VERIFY_SIG`: `auto` / `1` (fail closed) / `0` (off).
+Secrets are never logged — `api.sh?action=config` reports `token_masked:"***"` and scrubs `TG_API_BASE`
+(`https://host/bot<TOKEN>`) through `_api_scrub_url`.
 
 ## HTTP Transport
 
@@ -245,7 +386,27 @@ docker run --rm -v $(pwd):/ayu busybox:musl hush -c "
 "
 ```
 
-**141 tests, 0 failures** — QQ(14) + Telegram(6) + Discord(26) + HTTP(4) + Dispatch(2) + Sync(17) + URL(26) + Log(4) + Auth(5) + Webhook(16)
+**400 tests, 0 failures.**
+
+| Suite | Files | Tests |
+|-------|-------|-------|
+| QQ (Milky) | `test_qq_message`, `test_qq_system`, `test_qq_webhook` | 29 |
+| QQ Bot (official) | `test_qqbot`, `test_qqbot_admin`, `test_qqbot_commands` | 98 |
+| QQ Bot sync | `test_sync_qqbot` | 32 |
+| Telegram | `test_telegram` | 16 |
+| Discord | `test_discord` | 32 |
+| Cross-platform sync | `test_sync`, `test_sync_tmpvars` | 29 |
+| HTTP transport | `test_http`, `test_headers` | 90 |
+| Security / scrubbing | `test_router_auth`, `test_webhook_auth`, `test_scrub` | 18 |
+| Dispatch & API | `test_dispatch`, `test_api` | 11 |
+| URL / log / maintenance | `test_url`, `test_log`, `test_maint` | 45 |
+
+qqbot coverage splits as `test_qqbot.sh` (45: webhook entry, op=13, op=0 ACK, 401/403, dedupe),
+`test_qqbot_admin.sh` (40: bind / rename / unchanged / history / full-stream), `test_qqbot_commands.sh`
+(13: built-in commands), `test_sync_qqbot.sh` (32: qqbot↔TG/DC relay, attachments, recall).
+
+Tests assume the submodules are initialised (`git submodule update --init`), otherwise `test/run.sh` fails at
+`hush-json/lib/json.sh`.
 
 ## Constraints
 

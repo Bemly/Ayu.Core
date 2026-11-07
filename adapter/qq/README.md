@@ -3,6 +3,17 @@
 > Protocol spec from CharonAnchor/Lagrange.Milky; implemented by LLOneBot
 > 29 endpoints, 100% covered in Ayu.Core adapter
 
+**Not the official QQ Bot API.** This adapter talks to a locally hosted Lagrange/LLOneBot instance
+over HTTP with numeric QQ numbers. If you are looking for the official OpenAPI v2 (webhook, `openid`,
+Ed25519 signatures), see [`../qqbot/README.md`](../qqbot/README.md).
+
+| | `qq` (this adapter) | `qqbot` (official) |
+|---|---|---|
+| ID space | numeric `group_id` / `user_id` | `group_openid` / `member_openid` / `user_openid` |
+| Auth | `Authorization: Bearer <QQ_TOKEN>` | AppID + AppSecret token, Ed25519 webhook signatures |
+| Transport | local HTTP, all POST | webhook in, HTTPS API out |
+| Sender name | available in event | not returned; bind via `@bot @某人 昵称` |
+
 **Protocol**: Milky (LagrangeV2-compatible, served by LLOneBot)
 **Auth**: `Authorization: Bearer <QQ_TOKEN>`
 **Base URL**: `http://<QQ_HOST>:<QQ_PORT><QQ_PREFIX>api`

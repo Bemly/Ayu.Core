@@ -12,7 +12,8 @@
 | AccessToken | `POST /app/getAppAccessToken`，`{appId, clientSecret}`，有效期 ≤ 7200s |
 | 回调端口 | 80 / 443 / 8080 / 8443（必须 HTTPS） |
 | 回调验签 | Ed25519，Header `X-Signature-Ed25519` + `X-Signature-Timestamp` |
-| 覆盖度 | 46 个 HTTP 接口 · 22 个事件 · 全量对象与错误码 |
+| 文档覆盖 | 46 个 HTTP 接口 · 22 个事件 · 全量对象与错误码 |
+| 代码覆盖 | 20 个事件分支 + 群 / 单聊 / 频道 / 素材 / 菜单 / 面板 / 互动全部接口（见「代码实现映射」两表） |
 
 ## 与 `adapter/qq`（Milky）的区别
 
@@ -49,6 +50,72 @@
 | 10 | 函数前缀 | 建议 `qqbot_*`（如 `qqbot_message_send_group`），避免与 `adapter/qq` 的 `qq_message_send_group` 混淆 |
 | 11 | 配置项 | `etc/config.sh`：`QQBOT_APP_ID` / `QQBOT_APP_SECRET` / `QQBOT_API_BASE`；密钥只走环境变量或生产 config，不进仓库 |
 | 12 | 图片缓存 | 富媒体走 `file_info`（`/v2/.../files` 上传后得到），与 `qq` 的本地 `/tmp/img` 不同，不需落盘缓存 |
+
+## 代码实现映射
+
+### 事件 → dispatch（`webhook.sh:qqbot_handle_event`）
+
+`dispatch()` 的 platform 固定为 `qqbot`，`event` 按下表归类（命令规则的 `qqbot:` 前缀即按此平台匹配）：
+
+| 平台事件 | 归类 `event` | 适配器处理 |
+|---|---|---|
+| `GROUP_AT_MESSAGE_CREATE` | `group_message` | 解析 → `qqbot_render_content` → 管理员命令拦截 → 历史落档 → `dispatch` |
+| `GROUP_MESSAGE_CREATE` | `group_message` | 同上（需在平台申请全量消息订阅；`QQBOT_BOT_OPENID` 有值时命令须 @ bot） |
+| `C2C_MESSAGE_CREATE` | `c2c_message` | 单聊消息 → `dispatch` |
+| `AT_MESSAGE_CREATE` | `channel_message` | 频道内 @bot 消息 → `dispatch` |
+| `MESSAGE_CREATE` | `channel_message` | 频道普通消息（bot 自己发的 `author.bot=true` 直接丢弃） |
+| `DIRECT_MESSAGE_CREATE` | `direct_message` | 频道私信 → `dispatch` |
+| `INTERACTION_CREATE` | `interaction` | 按钮 / 指令面板回调 → `dispatch`，由 handler 决定是否 `PUT /interactions/{id}` 应答 |
+| `MESSAGE_REACTION_ADD` | `reaction` | 表态添加 → `dispatch`（同步插件据此回传表情） |
+| `MESSAGE_REACTION_REMOVE` / `MESSAGE_REACTION_REMOVE_ALL` | `reaction` | 表态取消 → `dispatch` |
+| `GROUP_ADD_ROBOT` / `GROUP_DEL_ROBOT` / `GROUP_MSG_RECEIVE` / `GROUP_MSG_REJECT` | `group_event` | 群级系统事件，日志 + `dispatch` |
+| `FRIEND_ADD` / `FRIEND_DEL` / `C2C_MSG_RECEIVE` / `C2C_MSG_REJECT` | `c2c_event` | 好友 / 单聊系统事件，日志 + `dispatch` |
+| `MESSAGE_AUDIT_PASS` / `MESSAGE_AUDIT_REJECT` | `audit` | 消息审核结果 → `dispatch` |
+| 其它未知事件 | — | `log_debug` 丢弃，但仍回 `op=12` ACK，避免平台重推 |
+
+所有事件在 `op=0` 分支统一 ACK：`{"op":12,"d":{}}`。未 ACK 平台会按指数退避重试。
+
+### 出站 API → 函数
+
+| 模块 | 端点 | 函数 |
+|---|---|---|
+| 群消息 | `POST /v2/groups/{group_openid}/messages` | `qqbot_message_send_group` / `_raw` / `_md` / `_media` |
+| 群撤回 | `DELETE /v2/groups/{group_openid}/messages/{message_id}` | `qqbot_message_recall_group` |
+| 单聊消息 | `POST /v2/users/{user_openid}/messages` | `qqbot_message_send_c2c` / `_raw` / `_md` / `_media` |
+| 单聊流式 | `POST /v2/users/{user_openid}/stream_messages` | `qqbot_message_stream_c2c` |
+| 单聊撤回 | `DELETE /v2/users/{user_openid}/messages/{message_id}` | `qqbot_message_recall_c2c` |
+| 频道消息 | `POST /channels/{channel_id}/messages` | `qqbot_message_send_channel` / `_raw` |
+| 频道撤回 | `DELETE /channels/{channel_id}/messages/{message_id}?hidetip=false` | `qqbot_message_recall_channel` |
+| 富媒体上传 | `POST /v2/groups/{id}/files`、`POST /v2/users/{id}/files` | `qqbot_file_upload_group` / `_c2c` |
+| 分片上传 | `POST /v2/{groups,users}/{id}/upload_prepare`、`/upload_part_finish` | `*_upload_prepare` / `*_upload_finish` |
+| 素材 | `POST /v2/media-images/prepare` · `complete`、`GET /v2/media-images`、`DELETE /v2/media-images/{id}/delete` | `qqbot_media_image_prepare` / `_complete` / `_list` / `_delete` |
+| 链接生成 | `POST /v2/generate_url_link` | `qqbot_generate_url_link` |
+| 菜单 | `GET /v2/menu`、`PUT /v2/menu` | `qqbot_menu_get` / `qqbot_menu_put` |
+| 指令面板 | `GET/POST /v2/panels`、`GET/PUT/DELETE /v2/panels/{panel_id}`、`PUT /v2/panels/{panel_id}/target` | `qqbot_panel_list` / `_get` / `_create` / `_update` / `_delete` / `_target` |
+| 互动应答 | `PUT /interactions/{interaction_id}` | `qqbot_interaction_ack` |
+| 群信息 | `GET /v2/groups/{gid}/info`、`/bot_state` | `qqbot_group_info` / `qqbot_group_bot_state` |
+| 群成员 | `GET /v2/groups/{gid}/members`、`/members/{member_openid}`、`POST /batch_remove_members` | `qqbot_group_members` / `qqbot_group_member` / `qqbot_group_batch_remove` |
+| 入群审批 | `GET /join_request_list`、`POST /approval_join_request/{member_openid}` | `qqbot_group_join_requests` / `qqbot_group_join_approve` |
+| 审批策略 | `GET/POST /v2/groups/join_approval_strategy`、`GET/PATCH/DELETE /{id}`、`POST /{id}/execute`、`POST /{id}/whitelist_users` | `qqbot_join_strategy_list/get/create/update/delete/execute/whitelist` |
+| 黑名单 | `GET/POST/DELETE /v2/groups/{gid}/member_blacklist` | `qqbot_group_blacklist` / `_add` / `_del` |
+| 禁言 | `GET/POST /v2/groups/{gid}/restrict_chat_setting` | `qqbot_group_restrict_setting` / `qqbot_group_restrict_set` |
+| 频道 | `GET /users/@me`、`/users/@me/guilds`、`GET /guilds/{guild_id}`、`/guilds/{guild_id}/channels` | `qqbot_me` / `_my_guilds` / `_guild_get` / `_guild_channels` |
+| 子频道 | `POST /guilds/{gid}/channels`、`GET/PATCH/DELETE /channels/{channel_id}` | `qqbot_channel_create` / `_get` / `_update` / `_delete` |
+
+所有出站请求统一走 `_qqbot_api <METHOD> <path> <body> <tag>`：自动取/刷新 `access_token`（`POST /app/getAppAccessToken`，
+提前 60s 刷新），401 时刷新一次并重试，失败返回 `_ERROR` 而不是空串。路径段一律用 `qqbot_seg` 做 URL 安全编码
+（`openid` 含 `/` `+` `=` 时必须编码，否则 404）。
+
+### 内置命令（`etc/rules` 前缀 `qqbot:`）
+
+| 命令 | 函数 | 行为 |
+|---|---|---|
+| `/ping` | `qqbot_handler_ping` | 回 `pong` + 往返耗时 |
+| `/echo <text>` | `qqbot_handler_echo` | 原样回显（用于排查消息体转义） |
+| `/info` | `qqbot_handler_info` | 回会话类型、`group_openid` 前 7 位、bot openid 是否配置 |
+| `/recall [n\|all]` | `qqbot_handler_recall` | 撤回 bot 自己最近 n 条（默认 1），走 `qqbot_track_sent` / `qqbot_sent_ids` 记录的被动回复窗口内消息 id |
+
+这四条只在 `qqbot` 平台生效（前缀过滤），不会影响 QQ / TG / DC 的同名命令。
 
 ## 生产 / 开发环境分层
 

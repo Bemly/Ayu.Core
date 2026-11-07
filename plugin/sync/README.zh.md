@@ -8,11 +8,13 @@
 
 ```
 plugin/sync/
-├── common.sh      — 共享工具 + 适配器导入
-├── from_qq.sh     — QQ 源 → TG/DC 转发
-├── from_tg.sh     — TG 源 → QQ/DC 转发
-├── from_dc.sh     — DC 源 → QQ/TG 转发（stub）
-└── handler.sh     — sync_handler 主路由
+├── common.sh       — 共享工具 + 适配器导入
+├── from_qq.sh      — QQ 源 → TG/DC 转发
+├── from_tg.sh      — TG 源 → QQ/DC 转发
+├── from_qqbot.sh   — QQ Bot 源 → TG/DC 转发（媒体取自 attachments[]）
+├── from_dc.sh      — DC 源 → QQ/TG/QQBot 转发
+├── dc-sync.sh      — DC 每日批量拉取（cron）
+└── handler.sh      — sync_handler 主路由
 ```
 
 ## 方向与防循环
@@ -25,6 +27,12 @@ plugin/sync/
 | TG→DC | `✈️ 用户: 消息` | emoji 前缀 + bot 发送者 ID |
 | DC→QQ | `👾 用户: 消息` | 发送者 ID (`DC_BOT_ID`) |
 | DC→TG | `👾 用户: 消息` | 发送者 ID (`DC_BOT_ID`) |
+| QQ Bot→TG | `🅠 用户: 消息` | emoji 前缀（QQ Bot 无数字发送者 ID） |
+| QQ Bot→DC | `🅠 用户: 消息` | emoji 前缀 |
+| DC→QQ Bot | `👾 用户: 消息` | 发送者 ID (`DC_BOT_ID`) |
+
+QQ Bot（`qqbot`）是与 QQ（Milky）完全不同的适配器：ID 是 `openid` / `group_openid` 而非数字 QQ 号，
+传输方式是 webhook 而非本地 HTTP API。转发图标为 `🅠`，因此 `handler.sh` 的防循环判断与 `🐧` 相互独立。
 
 ## 内容类型处理
 
@@ -41,6 +49,21 @@ plugin/sync/
 | 撤回 | rev-map → `deleteMessage` | — | rev-map → `dc_message_delete` | — | —（DC 删除无 webhook 通知） |
 | 位置/联系人/骰子/投票 | 文字标签 | 文字标签 | 文字标签 | 文字标签 | — |
 
+### QQ Bot 源（webhook 事件）
+
+官方 webhook 事件的媒体**只**以 `attachments`（`url` + `content_type`，无本地路径、无 segment）形式下发，
+因此每条附件先下载一次，再走现成的 multipart helper 重传。转发是尽力而为：单条失败只记日志，文字仍发出。
+
+| 内容类型 | QQ Bot→TG | QQ Bot→DC |
+| --- | --- | --- |
+| 文字 | `sendMessage` + `🅠` | `dc_message_create` + `🅠` |
+| `image/*` | 下载 → `sendPhoto` | 下载 → multipart POST |
+| `video/*` | 下载 → `sendVideo` | 下载 → multipart POST |
+| `voice*` / `audio/*` | 优先 `voice_wav_url`（SILK 无法播放）→ `sendVoice` | 下载 → multipart POST |
+| 其他文件 | 下载 → `sendDocument` | 下载 → multipart POST |
+
+说明文字格式：`<标签> <文件名> (<大小>)`；标签为 图片 / 视频 / 语音 / 文件。
+
 ## 配置
 
 **1. 配置映射** `etc/sync.conf`：
@@ -49,7 +72,13 @@ plugin/sync/
 qq/group/123456=telegram/-100111            # QQ 群 → TG 群
 qq/group/123456=telegram/-100111/16553      # QQ 群 → TG 论坛话题
 telegram/-100111=qq/group/123456            # TG 群 → QQ 群
+qqbot/group/<group_openid>=telegram/-100111 # QQ Bot 群 → TG 群
+qqbot/group/<group_openid>=discord/ch123456 # QQ Bot 群 → DC 频道
+telegram/-100111=qqbot/group/<group_openid> # TG → QQ Bot 群
+discord/ch123456=qqbot/channel/<channel_id> # DC → QQ Bot 频道
 ```
+
+QQ Bot 目标支持 `qqbot/group/<group_openid>`、`qqbot/private/<user_openid>`、`qqbot/channel/<channel_id>` 三种。
 
 支持任意多行映射。每行独立解析——一条源消息可转发到多个目标，多个源也能指向同一个目标，行数无限制。
 
@@ -72,5 +101,7 @@ telegram/X=qq/group/B           # 同一个 TG → 2 个 QQ 群
 - DC→QQ/TG 撤回不可行（Discord webhook 不含删除事件）
 - TG→QQ 撤回不可行（TG webhook 不含删除事件）
 - TG Bot API `getFile` 有 **20MB** 文件大小限制
+- QQ Bot 入站媒体只以 `attachments[]` URL 下发，需先下载再重传，超大附件受 QQ Bot 上传 API 限制
+- QQ Bot 撤回归档到 `msg-map-rev`（`qqbot <gid|oid> <msg id>`），一条源消息一条记录
 
-QQ↔Telegram 完全双向同步。Discord 已接入三端：实时出站（QQ/TG→DC）+ 每日批量入站（DC→QQ/TG）。QQ 撤回顾及 TG 和 DC 双端。
+QQ↔Telegram 完全双向同步。Discord 已接入三端：实时出站（QQ/TG→DC）+ 每日批量入站（DC→QQ/TG）。QQ 撤回顾及 TG 和 DC 双端。QQ Bot（官方 webhook 机器人）是第四个源/目标：文字与附件转发到 TG / DC，DC→QQ Bot 文字出站并带撤回映射。

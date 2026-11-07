@@ -18,24 +18,43 @@ Ayu.Core 的配置和插件接入层。所有文件通过 `$_HB/etc/` 引用。
 
 ### 格式
 ```
-<pattern>|<script>|<func>
+[<platform>:]<pattern>|<script>|<func>
 ```
 
 脚本路径相对于 `adapter/`，引用 plugin 用 `../plugin/...`。
 
 ```
-/ping|qq/handler.sh|handler_ping              # → adapter/qq/handler.sh
-/echo|qq/handler.sh|handler_echo              # → adapter/qq/handler.sh
-*|../plugin/sync/handler.sh|sync_handler      # → plugin/sync/handler.sh
+qqbot:/ping|qqbot/handler.sh|qqbot_handler_ping    # 只在 qqbot 平台命中
+qqbot:/echo|qqbot/handler.sh|qqbot_handler_echo
+qqbot:/info|qqbot/handler.sh|qqbot_handler_info
+qqbot:/recall|qqbot/handler.sh|qqbot_handler_recall
+/ping|qq/handler.sh|handler_ping                   # 无前缀 → 所有平台都命中
+/echo|qq/handler.sh|handler_echo
+*|../plugin/sync/handler.sh|sync_handler           # → plugin/sync/handler.sh
 ```
+
+### 平台前缀
+
+`<platform>:` 可省略，取值 `qq:` / `qqbot:` / `telegram:` / `discord:`：
+
+| 写法 | 生效范围 |
+| --- | --- |
+| `qqbot:/ping` | 仅 `qqbot` 事件 |
+| `qq:/ping` | 仅 QQ (Milky) 事件 |
+| `/ping` | 全部平台（历史行为，向后兼容） |
+
+不带前缀的规则会被**所有**适配器命中。给某个平台写专属命令时务必加前缀，否则 qqbot 的
+`GROUP_AT_MESSAGE_CREATE`、QQ 的群消息会抢到同一条规则。前缀只做平台过滤，glob 匹配仍在剩余部分进行。
 
 ### Handler 函数签名
 ```sh
 handler_func <platform> <event> <user_id> <text> <raw_json>
 ```
 
-- `platform`: `qq` / `telegram` / `discord`
-- `event`: `message` / `reaction` / `message_recall` / `group_nudge` 等
+- `platform`: `qq` / `qqbot` / `telegram` / `discord`
+- `event`: `message` / `reaction` / `message_recall` / `group_nudge` 等；qqbot 传的是原始事件名
+  （`GROUP_AT_MESSAGE_CREATE`、`C2C_MESSAGE_CREATE`、`AT_MESSAGE_CREATE`、`INTERACTION_CREATE`、
+  `GROUP_ADD_ROBOT` …）
 - `user_id`: 发送者 ID
 - `text`: 解码后的消息文本
 - `raw_json`: 平台原始 JSON
@@ -75,9 +94,17 @@ telegram/-100111=qq/group/123456              # TG 群 → QQ 群
 qq/group/123456=discord/ch123456              # QQ 群 → DC 频道
 discord/ch123456=qq/group/123456              # DC 频道 → QQ（每日批量）
 telegram/-100111=telegram/-100222/16553       # TG → TG 话题
+qqbot/group/<group_openid>=telegram/-100111   # QQ Bot 群 → TG
+qqbot/group/<group_openid>=discord/ch123456   # QQ Bot 群 → DC
+telegram/-100111=qqbot/group/<group_openid>   # TG → QQ Bot 群
+telegram/-100111=qqbot/private/<user_openid>  # TG → QQ Bot 单聊
+discord/ch123456=qqbot/channel/<channel_id>   # DC → QQ Bot 频道
 ```
 
 支持多对多。行数无限制，每条源消息可转发到多个目标。
+
+qqbot 的平台名是 `qqbot`，ID 段是 `openid` / `group_openid`（不是 QQ 号）；目标形式支持
+`group` / `private` / `channel` 三种，见 `plugin/sync/README.md`。
 
 ## config.sh
 
@@ -92,13 +119,52 @@ TG_API_SECRET=""               # CF Worker X-Ayu-Token
 
 DC_TOKEN=""                    # Discord Bot token
 DC_BOT_ID=""                   # Bot 自己的 Discord user ID（防循环）
+DC_CDN_PROXY=""                # cdn.discordapp.com 不可达时的代理
+
+# --- QQ Bot 官方 OpenAPI v2（仅 webhook）---
+QQBOT_APP_ID=""                # q.qq.com AppID
+QQBOT_APP_SECRET=""            # AppSecret，同时是回调 Ed25519 的种子
+QQBOT_API_BASE="https://api.bot.qq.com"
+QQBOT_VERIFY_SIG="auto"        # auto | 1 失败即拒 | 0 关闭
+QQBOT_WEBHOOK_TOKEN=""         # URL 安全 token，优先于 WEBHOOK_SECRET
+QQBOT_BOT_OPENID=""            # bot 自身 openid（全量流下命令需 @ 它）
+QQBOT_ADMINS=""                # 允许绑定昵称的 openid，空格分隔
+QQBOT_HIST_KEEP="50"           # 单会话历史保留条数
+QQBOT_HIST_SHOW="5"            # 「@bot 历史」返回条数
 
 BOT_PORT="6160"
 WEBHOOK_SECRET=""              # 设后 ?token=xxx 必填
 _LOG_LEVEL="1"                 # 0=trace 1=info 2=warn 3=err
+MAINT_STATE_KEEP_DAYS="30"     # var/state 修剪：保留天数
+MAINT_STATE_KEEP_ITEMS="5000"  # 单会话保留条数（保底 200）
+MAINT_STATE_DRY="0"            # 1 = 只统计不删除
 ```
 
-所有值可通过环境变量 `ENV_VAR=value` 覆盖。生产密钥放 `etc/config.nas.sh`（gitignored）。
+### 环境分层
+
+所有值可通过环境变量 `ENV_VAR=value` 覆盖。`config.sh` 逐键提供空默认值，环境覆盖文件后加载、逐键覆盖：
+
+| 文件 | 何时加载 | 是否入库 |
+| --- | --- | --- |
+| `config.sh` | 总是 | 是（空模板） |
+| `config.dev.sh` | `AYU_ENV=dev` | 否 |
+| `config.local.sh` | `AYU_ENV=local` | 否 |
+| `config.prod.sh` | `AYU_ENV=prod` | 否（gitignored，生产真值） |
+
+`AYU_ENV` 未设时按宿主特征推断（NAS 路径 → `prod`）。从 `config.prod.example.sh` 复制起步；
+**生产 `config.sh` 与 `config.prod.sh` 永不用仓库版本覆盖**。
+
+QQ Bot 各键说明：
+
+| 键 | 说明 |
+| --- | --- |
+| `QQBOT_APP_ID` / `QQBOT_APP_SECRET` | 平台后台的 AppID / AppSecret（后者兼作验签种子） |
+| `QQBOT_API_BASE` | API 根，可指向自建代理 |
+| `QQBOT_VERIFY_SIG` | `auto` / `1` / `0`，见 `SECURITY.md` |
+| `QQBOT_WEBHOOK_TOKEN` | `/qqbot` 专用 token；`WEBHOOK_SECRET` 含 `#` `<` `;` 时必用 |
+| `QQBOT_BOT_OPENID` | bot 自身 openid；设置后全量流消息必须 @ 它才当命令 |
+| `QQBOT_ADMINS` | 允许 `@bot @某人 昵称` 绑定的 openid，支持 ≥7 位前缀匹配 |
+| `QQBOT_HIST_KEEP` / `QQBOT_HIST_SHOW` | 历史留存条数 / 查询返回条数 |
 
 ## 可用适配器 API
 
@@ -115,6 +181,21 @@ _LOG_LEVEL="1"                 # 0=trace 1=info 2=warn 3=err
 
 详见 `adapter/qq/README.md`
 
+### QQ Bot（官方 OpenAPI v2）
+
+| 函数 | 参数 | 返回 |
+|------|------|------|
+| `qqbot_message_send_group` | `group_openid text` | API 响应 JSON |
+| `qqbot_message_send_c2c` | `user_openid text` | API 响应 JSON |
+| `qqbot_message_send_channel` | `channel_id text` | API 响应 JSON |
+| `qqbot_message_recall_group` | `group_openid msg_id` | 无 |
+| `qqbot_file_upload_group` | `group_openid file_path` | API 响应 JSON |
+| `qqbot_body_text` | `text` | 文本 body JSON |
+| `qqbot_seg` | `str` | URL 段编码后的值 |
+| `_qqbot_api` | `method path body tag` | API 响应（内部，带 token 刷新） |
+
+共 125 个函数，详见 `adapter/qqbot/README.md`
+
 ### Telegram
 
 | 函数 | 参数 | 返回 |
@@ -125,7 +206,7 @@ _LOG_LEVEL="1"                 # 0=trace 1=info 2=warn 3=err
 | `_tg_api` | `method json_body [tag]` | API 响应（temp file） |
 | `tg_sendPhoto` | `chat_id photo [caption] [thread]` | API 响应 JSON |
 
-共 169 个函数，详见 `adapter/telegram/README.md`
+共 175 个函数，详见 `adapter/telegram/README.md`
 
 ### Discord
 
@@ -137,7 +218,7 @@ _LOG_LEVEL="1"                 # 0=trace 1=info 2=warn 3=err
 | `dc_message_delete` | `channel_id msg_id` | 无 |
 | `dc_webhook_execute` | `webhook_id token text [username]` | 无 |
 
-共 135 个函数，详见 `adapter/discord/README.md`
+共 143 个函数，详见 `adapter/discord/README.md`
 
 ## 可用库函数
 

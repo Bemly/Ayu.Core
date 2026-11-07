@@ -17,12 +17,37 @@ docker run --rm -v $(pwd):/ayu busybox:musl sh /ayu/test/run.sh
 
 ```
 Ayu.Core/                  # SNS bot framework (this repo)
+├── adapter/               # one directory per platform
+│   ├── qq/                #   Milky/Lagrange (LLOneBot)  — local HTTP, numeric QQ ids
+│   ├── qqbot/             #   QQ official OpenAPI v2    — webhook, openid, Ed25519
+│   ├── telegram/          #   Bot API
+│   └── discord/           #   Bot API + webhook
+├── plugin/sync/           # cross-platform relay (from_qq / from_tg / from_qqbot / from_dc)
+├── plugin/maint/          # daily rotation + var/state trim (cron)
+├── lib/                   # http, dispatch, json helpers, log
+├── cgi-bin/router.sh      # single httpd CGI entry, routes by platform
+├── etc/                   # config.sh (empty defaults) + rules + sync.conf + crontab
 ├── hush-json/             # → git submodule: pure hush JSON interpreter
+└── hush-ed25519/          # → git submodule: Ed25519 sign/verify for QQ Bot callbacks
 ```
+
+Adapter size (functions in `*.sh`, `git ls-files` count as of `990fe77`):
+
+| Adapter | Files | Functions | Transport |
+|---------|-------|-----------|-----------|
+| `qq` (Milky) | 7 | 39 | local HTTP, Bearer `QQ_TOKEN` |
+| `qqbot` (official v2) | 9 | 125 | webhook in + HTTPS API out |
+| `telegram` | 17 | 175 | Bot API long-poll-free webhook |
+| `discord` | 19 | 143 | Bot API + webhook |
 
 ## Submodule
 
-`hush-json/` is a git submodule → https://github.com/Bemly/hush-json. After changes to hush-json, update the pin in Ayu.Core:
+`hush-json/` → https://github.com/Bemly/hush-json, `hush-ed25519/` → https://github.com/Bemly/hush-ed25519.
+Both are pinned by commit (`160000`) — never flatten their contents into the main tree.
+A fresh clone MUST run `git submodule update --init`, otherwise `test/run.sh` dies with
+`can't open '/ayu/hush-json/lib/json.sh'`.
+
+After changes to hush-json, update the pin in Ayu.Core:
 
 ```sh
 cd hush-json && git pull origin main && cd .. && git add hush-json && git commit -m "update hush-json"
@@ -229,10 +254,54 @@ Every forwarded message stores BOTH a forward and reverse mapping:
 
 `etc/sync.conf`: `source=target` per line. Format:
 ```
-qq/group/123456=telegram/-100111          # QQ group → TG group
-telegram/-100111=qq/group/123456          # TG group → QQ group
-telegram/-100111=telegram/-100222/16553   # TG → TG forum topic
+qq/group/123456=telegram/-100111           # QQ group → TG group
+telegram/-100111=qq/group/123456           # TG group → QQ group
+telegram/-100111=telegram/-100222/16553    # TG → TG forum topic
+qqbot/group/<group_openid>=telegram/-100111 # QQ Bot group → TG group
+telegram/-100111=qqbot/group/<group_openid> # TG → QQ Bot group
+discord/ch123456=qqbot/channel/<channel_id>   # DC channel → QQ Bot channel
 ```
+
+QQ Bot targets: `qqbot/group/<group_openid>`, `qqbot/private/<user_openid>`, `qqbot/channel/<channel_id>`.
+
+### Rules with platform prefix
+
+`etc/rules` lines are `[<platform>:]<pattern>|<script>|<func>`. `dispatch()` in `lib/dispatch.sh`
+accepts exactly four prefixes: `qq:`, `qqbot:`, `telegram:`, `discord:`. Without a prefix the rule
+matches every platform (legacy behaviour), so platform-specific commands MUST be prefixed:
+
+```
+qqbot:/ping|qqbot/handler.sh|qqbot_handler_ping
+/ping|qq/handler.sh|handler_ping
+*|../plugin/sync/handler.sh|sync_handler
+```
+
+Note `router.sh` has two `case` blocks (platform detection + per-platform dispatch). Adding a platform
+means touching both, otherwise requests are detected but never handled (`unknown platform: qqbot`).
+
+### QQ Bot adapter (official OpenAPI v2)
+
+Webhook-only (no WebSocket gateway). Entry: `router.sh` → `adapter/qqbot/webhook.sh:qqbot_webhook()`.
+
+| File | Responsibility |
+|------|----------------|
+| `core.sh` | token cache/refresh, `_qqbot_api`, `qqbot_seg` (URL-safe encoding), sent-id tracking |
+| `sign.sh` | `qqbot_ed_load/usable/sign/verify`, `qqbot_signature_enabled` (Ed25519, seed = `QQBOT_APP_SECRET`) |
+| `webhook.sh` | op=13 URL validation, op=0 events, dedupe (`qqbot_seen/remember`), attachment rendering |
+| `message.sh` | group / c2c / channel send, recall, media & file upload (29 functions) |
+| `group.sh` / `guild.sh` | group + channel management APIs |
+| `asset.sh` | media-images, `generate_url_link`, menu, panels, user upload |
+| `admin.sh` | nickname binding, history, `qqbot_admin_handle` |
+| `handler.sh` | builtin commands `/ping` `/echo` `/info` `/recall` |
+
+Conventions and gotchas:
+
+- IDs are `openid` / `group_openid` — never numeric QQ numbers. The relay icon is `🅠` (loop prevention must treat `qqbot` separately from `🐧`).
+- `_qqbot_api <method> <path> <body> <tag>` handles token refresh once on 401 then retries.
+- Webhook events carry media **only** as `attachments[]` (url + content_type): `plugin/sync/from_qqbot.sh` downloads once and re-uploads via `_sync_tg_multipart` / `_sync_dc_multipart`; voice prefers `voice_wav_url` (SILK is unplayable).
+- Full-stream `GROUP_MESSAGE_CREATE` (whole-group messages, not just @-mentions) is handled in `admin.sh`; when `QQBOT_BOT_OPENID` is set, commands must @ the bot.
+- Auth is a separate token (`QQBOT_WEBHOOK_TOKEN`, URL-safe alphabet) with Ed25519 verification on every callback — see `SECURITY.md`.
+- Tests: `test/test_qqbot.sh` (45), `test/test_qqbot_admin.sh` (40), `test/test_qqbot_commands.sh` (13), `test/test_sync_qqbot.sh` (32).
 
 ### Discord Sync (2026-05-05)
 
