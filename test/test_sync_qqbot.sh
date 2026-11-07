@@ -397,6 +397,30 @@ test_sync_telegram_video_sticker_to_qqbot_video() {
 	rm -f "$_SYNC_CONF"
 }
 
+# file_type=2 is H.264/MP4 only. A TG video sticker is VP9/WebM, so the bot API
+# answers 850019 — the relay retries the same bytes as file_type=4 instead of
+# dropping the sticker.
+test_sync_telegram_video_sticker_falls_back_to_file() {
+	_sqb_conf 'telegram/-100=qqbot/group/G3'
+	mock_set '{"ok":true,"result":{"file_path":"stickers/file_2.webm","file_size":204800}}'
+	_sqb_stub_download
+	: > "$_SQB_STATE/qb-up"
+	qqbot_send_group_file_typed() {
+		printf 'type=%s name=%s\n' "$3" "$4" >> "$_SQB_STATE/qb-up"
+		if [ "$3" = "2" ]; then
+			printf 'qqbot.group.file: code=850019 msg=富媒体文件格式不支持 status=400\n' >"$QQBOT_ERR_FILE"
+			return 1
+		fi
+		return 0
+	}
+	sync_handler "telegram" "message" "42" "[贴纸: ⭐]" "$(_sqb_raw_tg_video_sticker)" 2>/dev/null
+	assert_contains "$(cat "$_SQB_STATE/qb-up" 2>/dev/null)" "type=2 name=sticker.webm" "webm tried as video first"
+	assert_contains "$(cat "$_SQB_STATE/qb-up" 2>/dev/null)" "type=4 name=sticker.webm" "850019 falls back to file_type=4"
+	. "$_HB/adapter/qqbot/message.sh"
+	_sqb_restore_download
+	rm -f "$_SYNC_CONF"
+}
+
 test_sync_telegram_photo_to_qqbot_image() {
 	_sqb_conf 'telegram/-100=qqbot/group/G3'
 	mock_set '{"ok":true,"result":{"file_path":"photos/file_3.jpg","file_size":102400}}'
@@ -442,6 +466,7 @@ test_sync_sender_shows_short_ids
 test_sync_telegram_to_qqbot_prefix
 test_sync_telegram_sticker_to_qqbot_image
 test_sync_telegram_video_sticker_to_qqbot_video
+test_sync_telegram_video_sticker_falls_back_to_file
 test_sync_telegram_photo_to_qqbot_image
 test_sync_telegram_media_over_cap_is_skipped
 test_sync_discord_to_qqbot_prefix

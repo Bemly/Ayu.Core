@@ -59,7 +59,7 @@ QQ Bot（`qqbot`）是与 QQ（Milky）完全不同的适配器：ID 是 `openid
 | TG 内容 | `file_type` | 文件名 | QQ 侧表现 |
 | --- | --- | --- | --- |
 | 静态贴纸（`is_video=false`） | 1 图片 | `sticker.webp` | 内联图片 |
-| 视频贴纸（`is_video=true`） | 2 视频 | `sticker.webm` | 可播放视频 |
+| 视频贴纸（`is_video=true`） | 2 视频（失败回退 4 文件） | `sticker.webm` | 转 H.264 才能内联播放；webm 被拒后作文件发送 |
 | 动态贴纸 TGS（`is_animated=true`） | 4 文件 | `sticker.tgs` | 文件（平台无法内联渲染 Lottie） |
 | 图片 `photo[]`（取最大档） | 1 图片 | `photo.jpg` | 内联图片 |
 | 动图 `animation` | 1 / 2 | `animation.gif` / `animation.mp4` | 按 `mime_type` 决定 |
@@ -67,6 +67,11 @@ QQ Bot（`qqbot`）是与 QQ（Milky）完全不同的适配器：ID 是 `openid
 
 不走 URL 直传：TG 下载 URL 里带 bot token，且只认 CF Worker 的 `X-Ayu-Token` 头，QQ 侧拉不到。
 `channel/*` 目标暂不支持媒体（官方 API 无对应上传接口），`log_debug` 记录后跳过。
+
+`file_type=2` 只收 H.264/MP4，而 TG 视频贴纸是 VP9/WebM，接口回 `850019 富媒体文件格式不支持`。
+容器内只有 busybox、没有 ffmpeg 可转码，因此同一条数据会以 `file_type=4` 再发一次（QQ 侧是可下载的
+`sticker.webm`，不能内联播放），拒绝原因和降级结果都写 `log_warn`，不做无声处理。
+若以后要真正的可播放视频，需在 `/ayu/var/bin` 放一份静态 ffmpeg 并在上传前转码。
 
 ### QQ Bot 源（webhook 事件）
 

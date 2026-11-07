@@ -249,6 +249,17 @@ _sync_tg_animation_to_dc() {
 	fi
 }
 
+# _sync_qqbot_send_file <target> <path> <file_type> <file_name> <caption>
+# Thin wrapper over the group/c2c typed-file helpers. The caller owns
+# QQBOT_ERR_FILE and the _ERROR reset, so the reason survives $() capture.
+_sync_qqbot_send_file() {
+	case "$1" in
+	group/*) qqbot_send_group_file_typed "${1#group/}" "$2" "$3" "$4" "$5" >/dev/null 2>/dev/null ;;
+	private/*) qqbot_send_c2c_file_typed "${1#private/}" "$2" "$3" "$4" "$5" >/dev/null 2>/dev/null ;;
+	*) return 1 ;;
+	esac
+}
+
 # _sync_tg_media_to_qqbot <raw> <token> <sender>
 # Forward TG media to the QQ official bot (group/* or private/*).
 #
@@ -262,6 +273,11 @@ _sync_tg_animation_to_dc() {
 # 4 file. Static stickers are inline images; video stickers (.webm) and lottie
 # (.tgs) cannot be rendered inline by the platform, so they keep their own kind
 # (video / file) instead of being pushed through the image path.
+#
+# file_type=2 is H.264/MP4 only; a video sticker (VP9/WebM) comes back as
+# 850019 "rich media format unsupported". No transcoder exists in the container
+# (busybox only), so such an upload is retried as file_type=4 and logged — the
+# media still arrives, just without inline playback.
 _sync_tg_media_to_qqbot() {
 	_ftq_raw="$1" _ftq_tid="$2" _ftq_sender="$3"
 	case "$_ftq_tid" in
@@ -380,33 +396,40 @@ _sync_tg_media_to_qqbot() {
 	# The send helpers run inside $(), so $QQBOT_ERR_FILE carries the reason out.
 	_ftq_erf="/tmp/qqbot-err.$$"; : >"$_ftq_erf"
 	QQBOT_ERR_FILE="$_ftq_erf" _ERROR=""
-	case "$_ftq_tid" in
-	group/*)
-		if qqbot_send_group_file_typed "${_ftq_tid#group/}" "$_ftq_tmp" "$_ftq_ty" "$_ftq_fn" "$_ftq_cap" >/dev/null 2>/dev/null; then
-			log_info "sync: tg→qqbot group ${_ftq_tid#group/} $_ftq_kind OK (type=$_ftq_ty)"
-			_ftq_rc=0
-		else
-			_ftq_rc=1
-		fi
-		;;
-	private/*)
-		if qqbot_send_c2c_file_typed "${_ftq_tid#private/}" "$_ftq_tmp" "$_ftq_ty" "$_ftq_fn" "$_ftq_cap" >/dev/null 2>/dev/null; then
-			log_info "sync: tg→qqbot private ${_ftq_tid#private/} $_ftq_kind OK (type=$_ftq_ty)"
-			_ftq_rc=0
-		else
-			_ftq_rc=1
-		fi
-		;;
-	*)
+	if _sync_qqbot_send_file "$_ftq_tid" "$_ftq_tmp" "$_ftq_ty" "$_ftq_fn" "$_ftq_cap"; then
+		log_info "sync: tg→qqbot $_ftq_tid $_ftq_kind OK (type=$_ftq_ty)"
+		_ftq_rc=0
+	else
 		_ftq_rc=1
-		;;
-	esac
+	fi
+
+	# file_type=2 only takes H.264/MP4. TG video stickers are VP9/WebM, which the
+	# bot API rejects with 850019 "rich media format unsupported". There is no
+	# transcoder inside the container (busybox only), so the same bytes are
+	# re-sent as a plain file instead of being dropped — logged, never silent.
+	if [ "$_ftq_rc" != "0" ] && [ "$_ftq_ty" = "2" ]; then
+		_ftq_err="$(tail -n 1 "$_ftq_erf" 2>/dev/null)"
+		[ -n "$_ftq_err" ] || _ftq_err="$_ERROR"
+		case "$_ftq_err" in
+		*850019*)
+			log_warn "sync: tg→qqbot $_ftq_tid $_ftq_kind not playable as video ($_ftq_err), retry as file"
+			_ftq_ty=4
+			: >"$_ftq_erf"
+			QQBOT_ERR_FILE="$_ftq_erf" _ERROR=""
+			if _sync_qqbot_send_file "$_ftq_tid" "$_ftq_tmp" 4 "$_ftq_fn" "$_ftq_cap"; then
+				log_warn "sync: tg→qqbot $_ftq_tid $_ftq_kind sent as file (type=4), inline playback unavailable"
+				_ftq_rc=0
+			fi
+			;;
+		esac
+	fi
+
+	unset QQBOT_ERR_FILE
 	if [ "$_ftq_rc" != "0" ]; then
 		_ftq_err="$(tail -n 1 "$_ftq_erf" 2>/dev/null)"
 		[ -n "$_ftq_err" ] || _ftq_err="$_ERROR"
 		log_err "sync: tg→qqbot $_ftq_tid $_ftq_kind FAIL (type=$_ftq_ty): ${_ftq_err:-no detail}"
 	fi
-	unset QQBOT_ERR_FILE
 	rm -f "$_ftq_tmp" "$_ftq_erf"
 	return "$_ftq_rc"
 }

@@ -201,13 +201,15 @@ The `qqbot` target in `plugin/sync/handler.sh` sends text and then calls `_sync_
 | TG content | `file_type` | Upload name |
 | --- | --- | --- |
 | Static sticker (`is_video=false`) | 1 | `sticker.webp` |
-| Video sticker (`is_video=true`) | 2 | `sticker.webm` |
+| Video sticker (`is_video=true`) | 2, falls back to 4 | `sticker.webm` |
 | Lottie sticker (`is_animated=true`) | 4 | `sticker.tgs` |
 | `photo[]` (largest size) | 1 | `photo.jpg` |
 | `animation` (mime-dependent) | 1 / 2 | `animation.gif` / `animation.mp4` |
 | video / voice / audio / document | 2 / 3 / 3 / 4 | `video.mp4` / `voice.ogg` / original name |
 
 No URL hand-off is possible: the TG download URL embeds our bot token and only answers with the CF worker's `X-Ayu-Token` header, which the QQ side cannot send. Above `QQBOT_FILE_DATA_MAX` (5 MB) the relay logs and skips — never "degrades" an image into a file, since that hides the failure behind a different-looking result. `channel/*` has no media upload endpoint and is skipped with `log_debug`.
+
+`file_type=2` accepts only H.264/MP4; TG video stickers are VP9/WebM and the API answers `850019 富媒体文件格式不支持`. The container ships busybox only (no ffmpeg), so the same bytes are retried as `file_type=4` (a downloadable `sticker.webm`, no inline playback) with both the rejection and the downgrade logged via `log_warn`. Proper playback would need a static ffmpeg under `/ayu/var/bin`.
 
 **Why the relay used to look broken**: the qqbot target only sent text, so `tg_extract_text()`'s label (`[贴纸: ⭐]`) arrived alone and the sticker itself never left Telegram.
 
