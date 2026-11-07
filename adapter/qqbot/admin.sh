@@ -20,10 +20,22 @@ QQBOT_HIST_DIR="${QQBOT_HIST_DIR:-${_STATE_DIR:-$_HB/var/state}/qqbot-hist}"
 QQBOT_HIST_KEEP="${QQBOT_HIST_KEEP:-50}"   # lines kept per chat
 QQBOT_HIST_SHOW="${QQBOT_HIST_SHOW:-5}"    # lines returned by 历史
 
+# qqbot_gid_ok <group_openid> → 0 when the id is safe to use as a filename
+# group_openid comes from the event JSON; every path below is "$dir/$gid", so a
+# value carrying '/' or '..' would walk out of the state dir (and a nickname
+# file write would then land anywhere). handler.sh already constrains its own
+# paths — this file did not, which made the group id a half-guarded input.
+qqbot_gid_ok() {
+	case "$1" in ''|*[!0-9A-Za-z_-]*) return 1 ;; esac
+	[ "${#1}" -le 64 ] || return 1
+	return 0
+}
+
 # ---- nickname bindings ---------------------------------------------------
 
 # qqbot_nick_file <group_openid> → path of the tab-separated <openid>\t<nick>
 qqbot_nick_file() {
+	qqbot_gid_ok "$1" || return 1
 	printf '%s/%s' "$QQBOT_NICK_DIR" "$1"
 }
 
@@ -65,6 +77,7 @@ qqbot_nick_drop() {
 # the file stays line-addressable by tail/awk.
 qqbot_hist_append() {
 	[ -n "$1" ] && [ -n "$2" ] || return 0
+	qqbot_gid_ok "$1" || return 0
 	mkdir -p "$QQBOT_HIST_DIR" 2>/dev/null
 	_qha_f="$QQBOT_HIST_DIR/$1"
 	_qha_t="$(printf '%s' "$4" | tr '\t\r\n' '   ')"
@@ -79,6 +92,7 @@ qqbot_hist_append() {
 
 # qqbot_hist_tail <group_openid> <n> — oldest → newest
 qqbot_hist_tail() {
+	qqbot_gid_ok "$1" || return 0
 	_qht_f="$QQBOT_HIST_DIR/$1"
 	[ -f "$_qht_f" ] || return 0
 	tail -n "$2" "$_qht_f"
@@ -115,6 +129,7 @@ qqbot_resolve_openid() {
 		printf '%s' "$_qro_t"
 		return 0
 	fi
+	qqbot_gid_ok "$1" || return 0
 	_qro_nf="$(qqbot_nick_file "$1")"
 	_qro_hf="$QQBOT_HIST_DIR/$1"
 	_qro_c="$(
@@ -205,6 +220,13 @@ qqbot_admin_handle() {
 
 	case "$_qam_rest" in
 		历史|/history|history)
+			# history leaks message bodies plus every member openid; it used to
+			# be answered before the admin check below, so any member could read
+			# the group. Refuse here, before the bind-specific guard.
+			if ! qqbot_is_admin "$_qam_uid"; then
+				qqbot_reply_event "$_qam_d" "只有管理员能查看历史" "$_qam_mode"
+				return 0
+			fi
 			qqbot_admin_history "$_qam_d" "$_qam_gid" "$_qam_mode"
 			return 0
 			;;

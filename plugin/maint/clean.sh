@@ -66,13 +66,16 @@ maint_trim_state() {
 		[ -d "$_mt_root" ] || continue
 		for _mt_dir in "$_mt_root"/*; do
 			[ -d "$_mt_dir" ] || continue
-			# 1) age-based: entries older than N days are dead weight
+			# 1) age-based: entries older than N days are dead weight. Nothing
+			# written in the last 10 minutes is touched: bot and maintainer run
+			# unsynchronised, and a just-written mapping must not vanish under
+			# the process that is still using it.
 			if [ "$_mt_days" -gt 0 ]; then
-				_mt_n="$(find "$_mt_dir" -maxdepth 1 -type f -mtime +"$_mt_days" 2>/dev/null | wc -l)"
+				_mt_n="$(find "$_mt_dir" -maxdepth 1 -type f -mtime +"$_mt_days" ! -mmin -10 2>/dev/null | wc -l)"
 				if [ "${_mt_n:-0}" -gt 0 ]; then
 					_mt_del=$((_mt_del + _mt_n))
 					if [ "$_mt_dry" != "1" ]; then
-						find "$_mt_dir" -maxdepth 1 -type f -mtime +"$_mt_days" \
+						find "$_mt_dir" -maxdepth 1 -type f -mtime +"$_mt_days" ! -mmin -10 \
 							-exec rm -f {} + 2>/dev/null
 					fi
 				fi
@@ -116,6 +119,15 @@ maint_run() {
 	maint_rotate "$_MAINT_LOG_DIR/bot.log" 5242880 2
 	maint_rotate "$_MAINT_LOG_DIR/error.log" 5242880 2
 	maint_rotate "$_MAINT_LOG_DIR/cron.log" 2097152 2
+	# anything else that logs into var/log (adapter debug logs, ad-hoc scripts)
+	# used to grow forever: rotate every remaining *.log, same ceiling
+	for _mr_lf in "$_MAINT_LOG_DIR"/*.log; do
+		[ -f "$_mr_lf" ] || continue
+		case "$_mr_lf" in
+			*/bot.log|*/error.log|*/cron.log) continue ;;
+		esac
+		maint_rotate "$_mr_lf" 2097152 2
+	done
 	maint_clean_tmp 60
 	maint_trim_state
 	# post-trim size report (state maps shrink, never zeroed)

@@ -46,8 +46,14 @@ function setConn(ok, text) {
 /* ---------- api ---------- */
 
 async function api(action, params) {
-  const qs = new URLSearchParams(Object.assign({ action, token }, params || {}));
-  const res = await fetch(API + '?' + qs.toString(), { cache: 'no-store' });
+  const qs = new URLSearchParams(Object.assign({ action }, params || {}));
+  // token goes in a header, not the query string: the httpd writes the request
+  // line (and therefore ?token=) to its access log, and so does every proxy in
+  // front of it. The CGI accepts both forms, so an old bookmark still works.
+  const res = await fetch(API + '?' + qs.toString(), {
+    cache: 'no-store',
+    headers: { 'X-Ayu-Token': token }
+  });
   if (res.status === 403) { const e = new Error('forbidden'); e.code = 403; throw e; }
   if (!res.ok) throw new Error('HTTP ' + res.status);
   return res.json();

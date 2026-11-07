@@ -44,10 +44,27 @@ qqbot_remember() {
 	printf '%s\n' "$1" >>"$QQBOT_DEDUP_FILE" 2>/dev/null || return 0
 	_qdtot="$(wc -l <"$QQBOT_DEDUP_FILE" 2>/dev/null | tr -d ' ')"
 	case "$_qdtot" in ''|*[!0-9]*) return 0 ;; esac
+	# Trim only at twice the cap, and only under an mkdir lock. tail|mv swaps
+	# the inode, so an append that lands between the tail and the mv is lost —
+	# and concurrent callbacks run in separate CGI processes, so that window is
+	# real, not theoretical. Doubling the threshold halves how often it opens;
+	# the lock keeps two trimmers from each other's way.
+	[ "$_qdtot" -gt $(( QQBOT_DEDUP_MAX * 2 )) ] || return 0
+	_qdl="$QQBOT_DEDUP_FILE.lock"
+	if ! mkdir "$_qdl" 2>/dev/null; then
+		# a lock left behind by a killed process: reap it after a minute
+		[ -n "$(find "$_qdl" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$_qdl" 2>/dev/null
+		return 0
+	fi
+	_qdtot="$(wc -l <"$QQBOT_DEDUP_FILE" 2>/dev/null | tr -d ' ')"
+	case "$_qdtot" in
+		''|*[!0-9]*) rmdir "$_qdl" 2>/dev/null; return 0 ;;
+	esac
 	if [ "$_qdtot" -gt "$QQBOT_DEDUP_MAX" ]; then
 		tail -n "$QQBOT_DEDUP_MAX" "$QQBOT_DEDUP_FILE" >"$QQBOT_DEDUP_FILE.tmp.$$" 2>/dev/null &&
 			mv "$QQBOT_DEDUP_FILE.tmp.$$" "$QQBOT_DEDUP_FILE" 2>/dev/null
 	fi
+	rmdir "$_qdl" 2>/dev/null
 	return 0
 }
 

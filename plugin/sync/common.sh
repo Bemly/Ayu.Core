@@ -20,7 +20,7 @@ _emoji_url_encode() {
 	_enc="$(printf '%s' "$1" | awk '
 	match($0, /\\u[Dd][89ABab][0-9A-Fa-f][0-9A-Fa-f]\\u[Dd][C-Fc-f][0-9A-Fa-f][0-9A-Fa-f]/) {
 		h1 = substr($0, 3, 4); lo = substr($0, 9, 4)
-		cp = 0x10000 + (("0x"h1) - 0xD800) * 0x400 + (("0x"lo) - 0xDC00)
+		cp = int(0x10000 + (("0x"h1) - 0xD800) * 0x400 + (("0x"lo) - 0xDC00))
 		_utf8hex(cp); exit
 	}
 	match($0, /\\u[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]/) {
@@ -29,9 +29,11 @@ _emoji_url_encode() {
 	}
 	function _utf8hex(cp) {
 		if (cp < 0x80) { printf "%%%02X", cp; return }
-		if (cp < 0x800) { printf "%%%02X%%%02X", 0xC0+(cp/64), 0x80+(cp%64); return }
-		if (cp < 0x10000) { printf "%%%02X%%%02X%%%02X", 0xE0+(cp/4096), 0x80+((cp/64)%64), 0x80+(cp%64); return }
-		printf "%%%02X%%%02X%%%02X%%%02X", 0xF0+(cp/262144), 0x80+((cp/4096)%64), 0x80+((cp/64)%64), 0x80+(cp%64)
+		# int() everywhere: awk only truncates to an integer when printf asks
+		# for %d/%X, so the arithmetic below used to rely on that side effect
+		if (cp < 0x800) { printf "%%%02X%%%02X", 0xC0+int(cp/64), 0x80+int(cp%64); return }
+		if (cp < 0x10000) { printf "%%%02X%%%02X%%%02X", 0xE0+int(cp/4096), 0x80+int((cp/64)%64), 0x80+int(cp%64); return }
+		printf "%%%02X%%%02X%%%02X%%%02X", 0xF0+int(cp/262144), 0x80+int((cp/4096)%64), 0x80+int((cp/64)%64), 0x80+int(cp%64)
 	}
 	')"
 	if [ -n "$_enc" ]; then
@@ -266,6 +268,9 @@ _sync_tg_multipart() {
 	_tgm_chat="$1" _tgm_thr="$2" _tgm_file="$3" _tgm_fname="$4"
 	_tgm_method="$5" _tgm_field="$6"
 	_tgm_mime="${7:-application/octet-stream}" _tgm_cap="${8:-}" _tgm_dur="${9:-}"
+	# a quote or CRLF in the upstream filename would truncate the part header or
+	# inject another one; strip them at the boundary, not in every caller
+	_tgm_fname="$(printf '%s' "$_tgm_fname" | tr -d '"\r\n' | tr '\t' ' ')"
 	_tgm_bound="ayu-$$-$(date +%s)"
 	_tgm_tmp="/tmp/tg-up-$$"
 	> "$_tgm_tmp"
@@ -308,6 +313,7 @@ _sync_tg_multipart() {
 _sync_dc_multipart() {
 	# Same no-`local` rule as above: all scratch names use the _dcm_ prefix.
 	_dcm_cid="$1" _dcm_file="$2" _dcm_fname="$3" _dcm_mime="$4" _dcm_cap="${5:-}"
+	_dcm_fname="$(printf '%s' "$_dcm_fname" | tr -d '"\r\n' | tr '\t' ' ')"
 	_dcm_bound="ayu-dc-$$-$(date +%s)"
 	_dcm_tmp="/tmp/dc-up-$$"
 	> "$_dcm_tmp"

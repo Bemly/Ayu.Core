@@ -19,8 +19,28 @@ _URI="${REQUEST_URI:-}"
 _PATH="${PATH_INFO:-}"
 _CT="${CONTENT_TYPE:-}"
 
-# read body from stdin
-_body="$(dd bs="$CONTENT_LENGTH" 2>/dev/null)"
+# read body from stdin — bounded. CONTENT_LENGTH is attacker-controlled (it is
+# a client header): an absurd value either makes dd spin or lets a single POST
+# fill the volume, so anything above 2 MiB is refused outright. dd is given a
+# block size and a count derived from the header instead of a raw byte count,
+# so a lying header cannot make it read without limit.
+_cl="${CONTENT_LENGTH:-0}"
+case "$_cl" in ''|*[!0-9]*) _cl=0 ;; esac
+if [ "$_cl" -gt 2097152 ]; then
+	printf 'Status: 413 Payload Too Large\r\n'
+	printf 'Content-Type: text/plain\r\n\r\n'
+	printf '413 Payload Too Large'
+	log_warn "router: body too large len=$_cl"
+	exit 0
+fi
+if [ "$_cl" -gt 0 ]; then
+	# exact read: full 4 KiB blocks first, then the remainder byte-wise, so a
+	# lying CONTENT_LENGTH cannot pull bytes belonging to the next request
+	_body="$( { dd bs=4096 count=$(( _cl / 4096 )) 2>/dev/null
+	           dd bs=1 count=$(( _cl % 4096 )) 2>/dev/null; } )"
+else
+	_body=""
+fi
 
 # request path without the query string (the query carries ?token=)
 _path="${_URI%%\?*}"
@@ -79,6 +99,22 @@ _status_line() {
 	esac
 }
 
+# _router_note_failure <platform> — record a dropped event
+# Failures used to be a single log line: no counter, so "how many events did we
+# drop today" was unanswerable from the webui. One appended line per failure
+# keeps this write-only (no read-modify-write race) and cheap; maint compacts
+# the file, and it is capped here as a backstop.
+_router_note_failure() {
+	mkdir -p "$_STATE_DIR" 2>/dev/null
+	printf '%s\t%s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$1" >> "$_STATE_DIR/failures" 2>/dev/null
+	_rnf_n="$(wc -l < "$_STATE_DIR/failures" 2>/dev/null | tr -d ' ')"
+	case "$_rnf_n" in ''|*[!0-9]*) return 0 ;; esac
+	[ "$_rnf_n" -gt 200 ] || return 0
+	tail -n 200 "$_STATE_DIR/failures" > "$_STATE_DIR/failures.tmp.$$" 2>/dev/null &&
+		mv "$_STATE_DIR/failures.tmp.$$" "$_STATE_DIR/failures" 2>/dev/null
+	return 0
+}
+
 # ---- route ----
 case "$_platform" in
 	qq)
@@ -86,6 +122,7 @@ case "$_platform" in
 		qq_webhook "$_body" || {
 			_err="$_ERROR"
 			log_err "router: $_err"
+			_router_note_failure qq
 			_status_line "$_err"
 			printf 'Content-Type: application/json\r\n\r\n'
 			_err_body "$_err"
@@ -97,6 +134,7 @@ case "$_platform" in
 		tg_webhook "$_body" || {
 			_err="$_ERROR"
 			log_err "router: $_err"
+			_router_note_failure telegram
 			_status_line "$_err"
 			printf 'Content-Type: application/json\r\n\r\n'
 			_err_body "$_err"
@@ -108,6 +146,7 @@ case "$_platform" in
 		dc_webhook_handler "$_body" || {
 			_err="$_ERROR"
 			log_err "router: $_err"
+			_router_note_failure discord
 			_status_line "$_err"
 			printf 'Content-Type: application/json\r\n\r\n'
 			_err_body "$_err"
@@ -127,6 +166,7 @@ case "$_platform" in
 		printf 'Content-Type: application/json\r\n\r\n'
 		if [ $_qqbot_rc -ne 0 ]; then
 			log_err "router: ${_ERROR:-qqbot: handler failed}"
+			_router_note_failure qqbot
 			_err_body "${_ERROR:-qqbot: handler failed}"
 		else
 			printf '%s' "$_qqbot_out"

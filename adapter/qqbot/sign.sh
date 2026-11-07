@@ -70,5 +70,13 @@ qqbot_signature_enabled() {
 		1|on|yes|true) return 0 ;;
 	esac
 	qqbot_configured || return 1
+	# auto + configured but the library is unusable: this degrades to token-only
+	# auth silently, which is exactly how a "signatures are on" assumption rots.
+	# Warn once per boot (/tmp survives the container, not a restart) and keep
+	# going — QQBOT_VERIFY_SIG=1 remains the way to fail closed.
+	if ! qqbot_ed_usable && [ ! -f /tmp/qqbot-sig-warned ]; then
+		: > /tmp/qqbot-sig-warned 2>/dev/null
+		log_err "qqbot.sign: app secret configured but hush-ed25519 unusable — inbound signatures NOT verified (token only); set QQBOT_VERIFY_SIG=1 to fail closed"
+	fi
 	qqbot_ed_usable
 }

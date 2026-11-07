@@ -98,9 +98,17 @@ _http_build_req() {
 _http_res_parse() {
 	_hraw="$1"
 
-	# Split headers and body on first \r\n\r\n
+	# Split headers and body on the first blank line. CRLF is what the RFC says
+	# and what upstream normally sends, but an LF-only response (rewritten by a
+	# proxy) used to leave every header line in the body: check for the terminator
+	# before trusting it.
 	_hbody="$(printf '%s' "$_hraw" | sed '1,/^\r$/d')"
-	_hhdr="$(printf '%s' "$_hraw" | sed '/^\r$/q')"
+	if [ "$_hbody" = "$_hraw" ]; then
+		_hbody="$(printf '%s' "$_hraw" | sed '1,/^$/d')"
+		_hhdr="$(printf '%s' "$_hraw" | sed '/^$/q')"
+	else
+		_hhdr="$(printf '%s' "$_hraw" | sed '/^\r$/q')"
+	fi
 
 	# Extract status code from first line
 	_hsline="$(printf '%s' "$_hhdr" | head -1)"
@@ -110,14 +118,35 @@ _http_res_parse() {
 	# Handle chunked transfer encoding
 	if printf '%s' "$_hhdr" | grep -qi "Transfer-Encoding:.*chunked"; then
 		_hbody="$(printf '%s\n' "$_hbody" | awk '
-		/^[0-9a-fA-F]+\r?$/ {
-			clen = strtonum("0x"$1)
+		{
+			line = $0
+			sub(/\r$/, "", line)
+			sub(/;.*$/, "", line)        # chunk extensions: 1a;foo=bar
+			# busybox awk has no strtonum() (calling it is rc=127, i.e. no body
+			# at all on HTTP/1.1 responses), so parse the hex length by hand.
+			n = length(line)
+			clen = 0
+			ok = (n > 0)
+			for (i = 1; i <= n && ok; i++) {
+				c = tolower(substr(line, i, 1))
+				v = index("0123456789abcdef", c) - 1
+				if (v < 0) ok = 0
+				else clen = clen * 16 + v
+			}
+			if (!ok) next
 			if (clen == 0) exit
 			chunk = ""
-			for (i = 1; i <= clen; i++) {
-				r = getline; chunk = chunk $0 "\n"
+			got = 0
+			# clen is a byte count, not a line count: a 5-byte chunk that holds
+			# one text line ends after one getline. Counting lines here would
+			# swallow the next chunk headers (the old loop did exactly that).
+			while (got < clen) {
+				if ((getline nxt) <= 0) break
+				chunk = chunk nxt "\n"
+				got += length(nxt) + 1
 			}
 			printf "%s", chunk
+			if (got < clen) exit
 		}')"
 		_hbody="${_hbody%$(printf '\n')}"
 	fi

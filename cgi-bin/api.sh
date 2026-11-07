@@ -12,7 +12,21 @@ _HB="$(dirname "$0")/.."
 . "$_HB/lib/auth.sh"
 
 # ---- auth (same shared secret as the webhooks) ----
-if ! auth_check "${QUERY_STRING:-}" "${WEBHOOK_SECRET:-}"; then
+# The token is read from the X-Ayu-Token header when present: a secret in the
+# query string is written to the httpd access log and to every reverse-proxy
+# log it passes. ?token= stays supported for old bookmarks and for curl one-
+# liners, so nothing breaks — but the webui now sends the header.
+_auth_qs="${QUERY_STRING:-}"
+if [ -n "${HTTP_X_AYU_TOKEN:-}" ]; then
+	_auth_qs="token=$(url_encode "$HTTP_X_AYU_TOKEN")"
+fi
+if auth_misconfigured; then
+	printf 'Status: 503 Service Unavailable\r\nContent-Type: application/json\r\n\r\n'
+	printf '{"error":"misconfigured"}'
+	log_err "api: AYU_ENV=${AYU_ENV:-?} without WEBHOOK_SECRET — refusing"
+	exit 0
+fi
+if ! auth_check "$_auth_qs" "${WEBHOOK_SECRET:-}"; then
 	printf 'Status: 403 Forbidden\r\nContent-Type: application/json\r\n\r\n'
 	printf '{"error":"forbidden"}'
 	log_warn "api: auth rejected action=$(auth_query_param "${QUERY_STRING:-}" action)"
@@ -32,8 +46,19 @@ _api_kb() {
 }
 
 # _count <dir> — number of files, recursively (msg maps are sharded per chat)
+# The webui polls status every 5 s and the maps hold ~16k files, so a full
+# find on every poll is pure waste. Cache the count per directory for 60 s
+# (the cache file's mtime is the timestamp, kept in /tmp because it is
+# regenerable). A minute of staleness is fine: this is a gauge, not a
+# control value.
 _api_count() {
+	_cc="/tmp/ayu-count.$(printf '%s' "$1" | tr '/ ' '__')"
+	if [ -f "$_cc" ] && [ -n "$(find "$_cc" -mmin -1 2>/dev/null)" ]; then
+		cat "$_cc"
+		return 0
+	fi
 	_c="$(find "$1" -type f 2>/dev/null | wc -l)"
+	printf '%s' "${_c:-0}" > "$_cc" 2>/dev/null
 	printf '%s' "${_c:-0}"
 }
 
@@ -80,8 +105,13 @@ _api_status() {
 		"$_maps" "$_revs" "${_qq_g:-0}" "$(_api_kb "$_STATE_DIR")"
 	printf '"media":{"cache_kb":%s,"cache_files":%s},' \
 		"$(_api_kb /tmp/img)" "$(_api_count /tmp/img)"
-	printf '"maintenance":{"last_run":%s}' \
+	printf '"maintenance":{"last_run":%s},' \
 		"$(json_escape "$(grep -o 'maint: .*done.*' "$_LOG_DIR/bot.log" 2>/dev/null | tail -1)")"
+	# events dropped by router.sh (handler failures). Non-zero means platforms
+	# are being retried into a wall — visible here instead of only in the log.
+	_fail_n="$(wc -l < "$_STATE_DIR/failures" 2>/dev/null | tr -d ' ')"
+	case "$_fail_n" in ''|*[!0-9]*) _fail_n=0 ;; esac
+	printf '"events":{"dropped":%s}' "$_fail_n"
 	printf '}'
 }
 
