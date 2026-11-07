@@ -68,6 +68,16 @@ esac
 # '#', ';' or '<' which truncate the query string at the edge.
 # It is accepted ONLY on the qqbot endpoint — it lives in a URL that the QQ
 # platform stores and logs, so it must never unlock qq/telegram/discord.
+# A prod deployment with no secret falls through auth_check's "open" branch
+# and would serve every request — refuse instead (same guard as api.sh).
+if auth_misconfigured; then
+	printf 'Status: 503 Service Unavailable\r\n'
+	printf 'Content-Type: text/plain\r\n\r\n'
+	printf '503 Service Unavailable'
+	log_err "router: misconfigured (AYU_ENV=${AYU_ENV:-?} without secret) — refusing"
+	exit 0
+fi
+
 _auth_ok=0
 auth_check "${QUERY_STRING:-}" "${WEBHOOK_SECRET:-}" && _auth_ok=1
 if [ "$_auth_ok" -eq 0 ] && [ "$_platform" = "qqbot" ] && [ -n "${QQBOT_WEBHOOK_TOKEN:-}" ]; then

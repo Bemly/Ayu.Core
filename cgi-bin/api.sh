@@ -41,7 +41,13 @@ case "$_lines" in ''|*[!0-9]*) _lines=80 ;; esac
 
 # _kb <dir> — size in KB (0 when missing)
 _api_kb() {
+	_kc="/tmp/ayu-kb.$(printf '%s' "$1" | tr '/ ' '__')"
+	if [ -f "$_kc" ] && [ -n "$(find "$_kc" -mmin -1 2>/dev/null)" ]; then
+		cat "$_kc"
+		return 0
+	fi
 	_k="$(du -sk "$1" 2>/dev/null | awk '{print $1}')"
+	printf '%s' "${_k:-0}" > "$_kc" 2>/dev/null
 	printf '%s' "${_k:-0}"
 }
 

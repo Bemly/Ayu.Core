@@ -194,16 +194,32 @@ _sync_get_sender() {
 	esac
 }
 
+# _sync_safe_id <value> — true when the value is safe as a single path
+# component. Platform ids legitimately contain letters, digits, '-', '_', '.'
+# and ':' (TG chat/thread); anything else — notably '/', '..' and '$' — is
+# rejected so a forged webhook id cannot escape var/state/msg-map{,-rev}.
+_sync_safe_id() {
+	case "${1:-}" in
+	''|.|..) return 1 ;;
+	*[!A-Za-z0-9_.:@-]*) return 1 ;;
+	esac
+	return 0
+}
+
 # _sync_src_msgid <platform> <raw> — the source platform's own message id
 # (QQ uses message_seq, TG message_id, DC/QQ-bot id). Reverse maps are keyed on
 # it so a recall on the source platform can delete the forwarded copies.
 _sync_src_msgid() {
-	case "$1" in
+	_sm="$(case "$1" in
 		qq)       json_get "$2" message_seq 2>/dev/null ;;
 		telegram) json_get "$2" message_id 2>/dev/null ;;
 		discord)  json_get "$2" id 2>/dev/null ;;
 		qqbot)    json_get "$2" id 2>/dev/null ;;
-	esac
+	esac)"
+	# It becomes the last component of msg-map-rev paths: refuse anything
+	# that is not a plain id (callers treat empty as "no mapping").
+	_sync_safe_id "$_sm" || return 0
+	printf '%s' "$_sm"
 }
 
 # Extract source chat/channel/group ID as config lookup key
@@ -361,7 +377,7 @@ _tg_download_file() {
 	_ts=$(date +%s)
 	_ext=".${_fname##*.}"; [ "$_ext" = ".$_fname" ] && _ext=""
 	_tg_df_path="/tmp/img/sync-${_prefix}-tg-$$-$_ts$_ext"
-	_tg_df_furi="file:///root/img/sync-${_prefix}-tg-$$-$_ts$_ext"
+	_tg_df_furi="file:///tmp/img/sync-${_prefix}-tg-$$-$_ts$_ext"
 	_tg_df_name="$_fname"
 	_url="https://${TG_API_HOST}/file/bot${TG_TOKEN}/${_path}"
 	http_get_file "$_url" "$_tg_df_path" "$_TG_AUTH" || {

@@ -107,6 +107,16 @@ _qqbot_do() {
 	esac
 }
 
+# _qqbot_note_err <message> — persist the last error to $QQBOT_ERR_FILE.
+# Callers run the *_api functions inside $(...) to capture stdout, and a
+# subshell cannot assign _ERROR in the parent. Writing the message to a file
+# lets the caller recover the real reason instead of a bare "upload failed".
+_qqbot_note_err() {
+	[ -n "${QQBOT_ERR_FILE:-}" ] || return 0
+	printf '%s\n' "$1" >>"$QQBOT_ERR_FILE" 2>/dev/null
+	return 0
+}
+
 # _qqbot_api <METHOD> <path> <body> <tag> → JSON on stdout, _ERROR on failure
 # Rejects responses carrying a non-zero business `code` (QQ answers 200 even
 # for auth/permission errors, so the HTTP status alone is not enough).
@@ -119,12 +129,14 @@ _qqbot_api() {
 	rm -f "$_qaf"
 	if [ $_qarc -ne 0 ]; then
 		_ERROR="$_qatag: transport failed (status ${_HTTP_STATUS:-none})"
+		_qqbot_note_err "$_ERROR"
 		return 1
 	fi
 	_qac="$(json_get "$_qaj" code 2>/dev/null)" || _qac=""
 	if [ -n "$_qac" ] && [ "$_qac" != "0" ]; then
 		_qam2="$(json_get "$_qaj" message 2>/dev/null)" || _qam2=""
 		_ERROR="$_qatag: code=$_qac msg=$_qam2 status=${_HTTP_STATUS:-none}"
+		_qqbot_note_err "$_ERROR"
 		return 1
 	fi
 	printf '%s' "$_qaj"
@@ -146,11 +158,13 @@ _qqbot_api_body() {
 	rm -f "$_qabout"
 	if [ $_qabrc -ne 0 ]; then
 		_ERROR="$_qabtag: transport failed (status ${_HTTP_STATUS:-none})"
+		_qqbot_note_err "$_ERROR"
 		return 1
 	fi
 	_qabc="$(json_get "$_qabj" code 2>/dev/null)" || _qabc=""
 	if [ -n "$_qabc" ] && [ "$_qabc" != "0" ]; then
 		_ERROR="$_qabtag: code=$_qabc msg=$(json_get "$_qabj" message 2>/dev/null) status=${_HTTP_STATUS:-none}"
+		_qqbot_note_err "$_ERROR"
 		return 1
 	fi
 	printf '%s' "$_qabj"

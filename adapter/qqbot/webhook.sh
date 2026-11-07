@@ -245,8 +245,11 @@ qqbot_render_content() {
 	done
 	_qrc_ext="$(printf '%s' "$_qrc_t" | grep -o 'ext="[A-Za-z0-9+/=]*"' | sed 's/^ext="//; s/"$//' | sort -u)"
 	for _qrc_b in $_qrc_ext; do
-		_qrc_x="$(printf '%s' "$_qrc_b" | base64 -d 2>/dev/null | sed 's/.*"text":"//; s/"}.*//')"
+		_qrc_x="$(printf '%s' "$_qrc_b" | base64 -d 2>/dev/null | sed 's/.*"text":"//; s/"}.*//' | tr -d '\n')"
 		[ -n "$_qrc_x" ] || continue
+		# replacement side of sed: '\\', '&' and the '|' delimiter must be
+		# escaped, otherwise "A&B" loses the & and "A|B" breaks the expression
+		_qrc_x="$(printf '%s' "$_qrc_x" | sed 's/[\\&|]/\\&/g')"
 		_qrc_t="$(printf '%s' "$_qrc_t" | sed "s|<faceType=[^>]*ext=\"$_qrc_b\"[^>]*>|$_qrc_x|g")"
 	done
 	# faces without a decodable ext (or any leftover tag) are dropped

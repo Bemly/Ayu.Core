@@ -105,7 +105,7 @@ _sync_dc_attachments_to_qq() {
 		# Image → QQ image segment, others → file upload
 		case "$_ct" in
 			image/*)
-				_furi="file:///root/img/sync-dc-qq-$$-$_ts"
+				_furi="file:///tmp/img/sync-dc-qq-$$-$_ts"
 				_img_msg="[{\"type\":\"image\",\"data\":{\"uri\":\"$_furi\",\"summary\":\"👾 $_sender: [图片]\"}}]"
 				if qq_message_send_group "$_gid" "$_img_msg" >/dev/null; then
 					_sent=$((_sent + 1)); log_info "sync: dc->qq image OK"
@@ -114,7 +114,7 @@ _sync_dc_attachments_to_qq() {
 				fi
 				;;
 			*)
-				_furi="file:///root/img/sync-dc-qq-$$-$_ts"
+				_furi="file:///tmp/img/sync-dc-qq-$$-$_ts"
 				if qq_file_upload_group "$_gid" "$_furi" "$_fn" >/dev/null; then
 					_sent=$((_sent + 1)); log_info "sync: dc->qq file OK $_fn"
 				else
@@ -182,6 +182,12 @@ _sync_dc_qqbot_revmap() {
 	chmod 640 "$_STATE_DIR/msg-map-rev/$_rm_cid/$_rm_mid" 2>/dev/null
 }
 
+# Recover the failure reason for a qqbot send that ran inside $().
+_sync_qqbot_err() {
+	[ -n "${_ERROR:-}" ] || _ERROR="$(tail -n 1 "${_erf:-/dev/null}" 2>/dev/null)"
+	[ -n "${_ERROR:-}" ] || _ERROR="no detail"
+}
+
 # Forward DC text to the QQ official bot
 _sync_dc_text_to_qqbot() {
 	_raw="$1" _tid="$2" _sender="$3"
@@ -193,6 +199,7 @@ _sync_dc_text_to_qqbot() {
 	fi
 	_sender="$(utf8_decode "$_sender")"
 	_text="👾 $_sender: $_txt"
+	_erf="/tmp/qqbot-err.$$"; : >"$_erf"; QQBOT_ERR_FILE="$_erf"; _ERROR=""
 	_mid="$(json_get "$_raw" id 2>/dev/null)" || _mid=""
 	_cid="$(json_get "$_raw" channel_id 2>/dev/null)" || _cid=""
 	case "$_tid" in
@@ -200,7 +207,7 @@ _sync_dc_text_to_qqbot() {
 		_qg="${_tid#group/}"
 		_resp="$(qqbot_message_send_group "$_qg" "$_text" 2>/dev/null)" || _resp=""
 		case "$_resp" in
-			''|NOTFOUND|null) log_err "sync: dc->qqbot group $_qg FAIL: $_ERROR"; return 1 ;;
+			''|NOTFOUND|null) _sync_qqbot_err; log_err "sync: dc->qqbot group $_qg FAIL: $_ERROR"; rm -f "$_erf"; unset QQBOT_ERR_FILE; return 1 ;;
 		esac
 		log_info "sync: dc->qqbot group $_qg OK"
 		_sync_dc_qqbot_revmap "$_cid" "$_mid" "qqbot $_qg $(json_get "$_resp" id 2>/dev/null)"
@@ -209,7 +216,7 @@ _sync_dc_text_to_qqbot() {
 		_qo="${_tid#private/}"
 		_resp="$(qqbot_message_send_c2c "$_qo" "$_text" 2>/dev/null)" || _resp=""
 		case "$_resp" in
-			''|NOTFOUND|null) log_err "sync: dc->qqbot private $_qo FAIL: $_ERROR"; return 1 ;;
+			''|NOTFOUND|null) _sync_qqbot_err; log_err "sync: dc->qqbot private $_qo FAIL: $_ERROR"; rm -f "$_erf"; unset QQBOT_ERR_FILE; return 1 ;;
 		esac
 		log_info "sync: dc->qqbot private $_qo OK"
 		;;
@@ -218,11 +225,14 @@ _sync_dc_text_to_qqbot() {
 		if qqbot_message_send_channel "$_qc" "$_text" >/dev/null 2>/dev/null; then
 			log_info "sync: dc->qqbot channel $_qc OK"
 		else
+			_sync_qqbot_err
 			log_err "sync: dc->qqbot channel $_qc FAIL: $_ERROR"
+			rm -f "$_erf"; unset QQBOT_ERR_FILE
 			return 1
 		fi
 		;;
 	esac
+	rm -f "$_erf"; unset QQBOT_ERR_FILE
 	return 0
 }
 
@@ -272,6 +282,9 @@ _sync_dc_attachments_to_qqbot() {
 		_fn="$(_qqbot_filename_with_ext "$_ct" "$_fn")"
 		_ty="$(qqbot_file_type_of "$_fn")"
 		_cap="👾 $_sender: [$(_qqbot_attach_label "$_ct")]"
+		# The send helpers run inside $(), so their _ERROR dies with the
+		# subshell; have them drop the reason into a file we can read back.
+		_erf="/tmp/qqbot-err.$$"; : >"$_erf"; QQBOT_ERR_FILE="$_erf"; _ERROR=""
 		_ok=0
 		case "$_tid" in
 		group/*)
@@ -295,9 +308,11 @@ _sync_dc_attachments_to_qqbot() {
 			_sent=$(( _sent + 1 ))
 			log_info "sync: dc->qqbot ${_ct:-file} OK $_fn (type=$_ty)"
 		else
-			log_err "sync: dc->qqbot ${_ct:-file} FAIL $_fn (type=$_ty): $_ERROR"
+			[ -n "$_ERROR" ] || _ERROR="$(tail -n 1 "$_erf" 2>/dev/null)"
+			log_err "sync: dc->qqbot ${_ct:-file} FAIL $_fn (type=$_ty): ${_ERROR:-no detail (typed+url both failed)}"
 		fi
-		rm -f "$_tmp"
+		unset QQBOT_ERR_FILE
+		rm -f "$_tmp" "$_erf"
 	done
 	[ "$_sent" -gt 0 ] && return 0 || return 1
 }

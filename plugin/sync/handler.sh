@@ -17,6 +17,11 @@ sync_handler() {
 	if [ "$_evt" = "reaction" ] && [ "$_pf" = "telegram" ]; then
 		_tcid="$3" _tmid="$4" _rdata="$5"
 
+		# URL segments are attacker-controlled; both are used as path
+		# components of var/state/msg-map{,-rev} below.
+		_sync_safe_id "$_tcid" && _sync_safe_id "$_tmid" \
+			|| { log_warn "sync: reaction unsafe id tcid=$_tcid tmid=$_tmid"; return 0; }
+
 		# --- new_reaction (add) ---
 		_new="$(json_get "$_rdata" new_reaction 2>/dev/null)" || _new=""
 		if [ -n "$_new" ] && [ "$_new" != "NOTFOUND" ]; then
@@ -93,6 +98,10 @@ sync_handler() {
 		_gid="$(json_get "$_raw" peer_id 2>/dev/null)" || _gid=""
 		_seq="$(json_get "$_raw" message_seq 2>/dev/null)" || _seq=""
 		if [ -n "$_gid" ] && [ -n "$_seq" ] && [ "$_gid" != "NOTFOUND" ] && [ "$_seq" != "NOTFOUND" ]; then
+			# Both come from the payload and are later used as path
+			# components (msg-map lookups, and rm -f further down).
+			_sync_safe_id "$_gid" && _sync_safe_id "$_seq" \
+				|| { log_warn "sync: recall unsafe id gid=$_gid seq=$_seq"; return 0; }
 			# New format: QQ msg -> DC ID (DC->QQ forward)
 			_fwd_map="$_STATE_DIR/msg-map/$_gid/$_seq"
 			if [ -f "$_fwd_map" ]; then
@@ -189,6 +198,9 @@ sync_handler() {
 		log_debug "sync: no src_id pf=$_pf"
 		return 0
 	fi
+	# The id half becomes a directory under msg-map-rev.
+	_sync_safe_id "${_src_id#*/}" \
+		|| { log_warn "sync: unsafe src_id ($_src_id), dropped"; return 0; }
 
 	log_info "sync: $_pf $_src_id → $_txt"
 	log_debug "sync: raw_segs=$(json_get "$_raw" segments 2>/dev/null)"
