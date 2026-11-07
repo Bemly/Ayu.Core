@@ -194,6 +194,24 @@ The `plugin/sync.sh` handler forwards messages between QQ and Telegram bidirecti
 
 **Why video/animated ≠ image**: QQ FlashTransfer returns "pic compress error" on non-static formats. WEBP is the only TG sticker format QQ can render as inline image.
 
+### Media (TG→QQ Bot, official API)
+
+The `qqbot` target in `plugin/sync/handler.sh` sends text and then calls `_sync_tg_media_to_qqbot()` (`from_tg.sh`), which downloads via `tg_getFile` and re-uploads as base64 `file_data` with `file_type`: 1 image / 2 video / 3 voice / 4 file.
+
+| TG content | `file_type` | Upload name |
+| --- | --- | --- |
+| Static sticker (`is_video=false`) | 1 | `sticker.webp` |
+| Video sticker (`is_video=true`) | 2 | `sticker.webm` |
+| Lottie sticker (`is_animated=true`) | 4 | `sticker.tgs` |
+| `photo[]` (largest size) | 1 | `photo.jpg` |
+| `animation` (mime-dependent) | 1 / 2 | `animation.gif` / `animation.mp4` |
+| video / voice / audio / document | 2 / 3 / 3 / 4 | `video.mp4` / `voice.ogg` / original name |
+
+No URL hand-off is possible: the TG download URL embeds our bot token and only answers with the CF worker's `X-Ayu-Token` header, which the QQ side cannot send. Above `QQBOT_FILE_DATA_MAX` (5 MB) the relay logs and skips — never "degrades" an image into a file, since that hides the failure behind a different-looking result. `channel/*` has no media upload endpoint and is skipped with `log_debug`.
+
+**Why the relay used to look broken**: the qqbot target only sent text, so `tg_extract_text()`'s label (`[贴纸: ⭐]`) arrived alone and the sticker itself never left Telegram.
+
+
 ### Reaction (TG→QQ)
 
 TG `message_reaction` update → lookup msg-map file at `/ayu/var/state/msg-map/{chat_id}/{message_id}` → extract `group_id message_seq` → `qq_group_send_reaction` with Unicode codepoint (decimal) as type=2 code. Emoji codepoint derived via `_reaction_code()` which handles JSON-escaped `\uXXXX` (including surrogate pairs) and raw UTF-8 via `od`.
@@ -301,7 +319,7 @@ Conventions and gotchas:
 - Webhook events carry media **only** as `attachments[]` (url + content_type): `plugin/sync/from_qqbot.sh` downloads once and re-uploads via `_sync_tg_multipart` / `_sync_dc_multipart`; voice prefers `voice_wav_url` (SILK is unplayable).
 - Full-stream `GROUP_MESSAGE_CREATE` (whole-group messages, not just @-mentions) is handled in `admin.sh`; when `QQBOT_BOT_OPENID` is set, commands must @ the bot.
 - Auth is a separate token (`QQBOT_WEBHOOK_TOKEN`, URL-safe alphabet) with Ed25519 verification on every callback — see `SECURITY.md`.
-- Tests: `test/test_qqbot.sh` (45), `test/test_qqbot_admin.sh` (48), `test/test_qqbot_commands.sh` (13), `test/test_sync_qqbot.sh` (32).
+- Tests: `test/test_qqbot.sh` (45), `test/test_qqbot_admin.sh` (48), `test/test_qqbot_commands.sh` (13), `test/test_sync_qqbot.sh` (36).
 
 ### Discord Sync (2026-05-05)
 

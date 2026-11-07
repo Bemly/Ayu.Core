@@ -305,6 +305,12 @@ sync_handler() {
 				fi
 				;;
 			esac
+			# Forward media (TG→QQ bot). The text above only carries a label
+			# ("[贴纸: ⭐]"), so the sticker itself has to be uploaded separately
+			# or the QQ side sees a bare placeholder line.
+			if [ "$_pf" = "telegram" ]; then
+				_sync_tg_media_to_qqbot "$_raw" "$_tid" "$_sender"
+			fi
 			;;
 		qq)
 			case "$_tid" in

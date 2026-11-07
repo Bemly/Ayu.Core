@@ -346,6 +346,90 @@ test_sync_sender_shows_short_ids() {
 		"宝宝(123456789)" "qq sender keeps full QQ number"
 }
 
+# ---- telegram -> qqbot media -----------------------------------------------
+# The qqbot target used to send text only, so a TG relay arrived as the bare
+# line "[贴纸: ⭐]" — the sticker itself never left Telegram.
+_sqb_raw_tg_sticker() {
+	printf '%s' '{"message_id":501,"from":{"id":42,"first_name":"Nyaser","username":"Nyaseru"},"chat":{"id":-100},"sticker":{"file_id":"STK1","file_unique_id":"u1","type":"regular","width":512,"height":512,"is_animated":false,"is_video":false,"emoji":"⭐","file_size":20480}}'
+}
+
+_sqb_raw_tg_video_sticker() {
+	printf '%s' '{"message_id":502,"from":{"id":42,"first_name":"Nyaser","username":"Nyaseru"},"chat":{"id":-100},"sticker":{"file_id":"STK2","file_unique_id":"u2","type":"regular","width":512,"height":512,"is_animated":true,"is_video":true,"emoji":"⭐","file_size":204800}}'
+}
+
+_sqb_raw_tg_photo() {
+	printf '%s' '{"message_id":503,"from":{"id":42,"first_name":"Nyaser","username":"Nyaseru"},"chat":{"id":-100},"photo":[{"file_id":"P1","width":90,"height":90},{"file_id":"P2","width":1280,"height":1280}]}'
+}
+
+# Capture what the typed uploader would put on the wire (type/name/caption).
+_sqb_capture_typed_upload() {
+	: > "$_SQB_STATE/qb-up"
+	qqbot_send_group_file_typed() {
+		printf 'type=%s name=%s cap=%s\n' "$3" "$4" "$5" > "$_SQB_STATE/qb-up"
+		return 0
+	}
+}
+
+test_sync_telegram_sticker_to_qqbot_image() {
+	_sqb_conf 'telegram/-100=qqbot/group/G3'
+	mock_set '{"ok":true,"result":{"file_path":"stickers/file_1.webp","file_size":20480}}'
+	_sqb_stub_download
+	_sqb_capture_typed_upload
+	sync_handler "telegram" "message" "42" "[贴纸: ⭐]" "$(_sqb_raw_tg_sticker)" 2>/dev/null
+	assert_contains "$(cat "$_SQB_STATE/qb-up" 2>/dev/null)" "type=1" "tg static sticker → file_type=1 (inline image)"
+	assert_contains "$(cat "$_SQB_STATE/qb-up" 2>/dev/null)" "name=sticker.webp" "tg static sticker keeps a .webp name"
+	assert_contains "$(cat "$_SQB_STATE/qb-up" 2>/dev/null)" "✈️ Nyaser(@Nyaseru): [贴纸]" "tg sticker caption keeps ✈️ + sender"
+	. "$_HB/adapter/qqbot/message.sh"
+	_sqb_restore_download
+	rm -f "$_SYNC_CONF"
+}
+
+test_sync_telegram_video_sticker_to_qqbot_video() {
+	_sqb_conf 'telegram/-100=qqbot/group/G3'
+	mock_set '{"ok":true,"result":{"file_path":"stickers/file_2.webm","file_size":204800}}'
+	_sqb_stub_download
+	_sqb_capture_typed_upload
+	sync_handler "telegram" "message" "42" "[贴纸: ⭐]" "$(_sqb_raw_tg_video_sticker)" 2>/dev/null
+	assert_contains "$(cat "$_SQB_STATE/qb-up" 2>/dev/null)" "type=2" "tg video sticker → file_type=2 (video)"
+	assert_contains "$(cat "$_SQB_STATE/qb-up" 2>/dev/null)" "name=sticker.webm" "tg video sticker keeps a .webm name"
+	. "$_HB/adapter/qqbot/message.sh"
+	_sqb_restore_download
+	rm -f "$_SYNC_CONF"
+}
+
+test_sync_telegram_photo_to_qqbot_image() {
+	_sqb_conf 'telegram/-100=qqbot/group/G3'
+	mock_set '{"ok":true,"result":{"file_path":"photos/file_3.jpg","file_size":102400}}'
+	_sqb_stub_download
+	_sqb_capture_typed_upload
+	sync_handler "telegram" "message" "42" "[图片]" "$(_sqb_raw_tg_photo)" 2>/dev/null
+	assert_contains "$(cat "$_SQB_STATE/qb-up" 2>/dev/null)" "type=1" "tg photo → file_type=1"
+	assert_contains "$(cat "$_SQB_STATE/qb-up" 2>/dev/null)" "name=photo.jpg" "tg photo keeps a .jpg name"
+	. "$_HB/adapter/qqbot/message.sh"
+	_sqb_restore_download
+	rm -f "$_SYNC_CONF"
+}
+
+# Above the 5 MB file_data cap the relay must be dropped with a log line, not
+# silently downgraded to a downloadable file or a truncated upload.
+test_sync_telegram_media_over_cap_is_skipped() {
+	_sqb_conf 'telegram/-100=qqbot/group/G3'
+	mock_set '{"ok":true,"result":{"file_path":"documents/file_4.pdf","file_size":9000000}}'
+	http_get_file() {
+		mkdir -p "$(dirname "$2")" 2>/dev/null
+		head -c 2000 /dev/zero | tr '\0' 'A' > "$2"
+		return 0
+	}
+	_sqb_capture_typed_upload
+	QQBOT_FILE_DATA_MAX=1024
+	sync_handler "telegram" "message" "42" "[文件: big.pdf]" \
+		'{"message_id":504,"from":{"id":42,"first_name":"Nyaser","username":"Nyaseru"},"chat":{"id":-100},"document":{"file_id":"D1","file_name":"big.pdf","mime_type":"application/pdf","file_size":9000000}}' 2>/dev/null
+	assert_eq "$(cat "$_SQB_STATE/qb-up" 2>/dev/null)" "" "oversize tg media is skipped, not degraded"
+	. "$_HB/adapter/qqbot/message.sh"
+	_sqb_restore_download
+	rm -f "$_SYNC_CONF"
+}
+
 test_sync_qqbot_to_telegram
 test_sync_qqbot_to_discord
 test_sync_qqbot_to_qq_group
@@ -356,6 +440,10 @@ test_sync_qqbot_bad_download_detected
 test_sync_qqbot_cdn_error_body_not_forwarded
 test_sync_sender_shows_short_ids
 test_sync_telegram_to_qqbot_prefix
+test_sync_telegram_sticker_to_qqbot_image
+test_sync_telegram_video_sticker_to_qqbot_video
+test_sync_telegram_photo_to_qqbot_image
+test_sync_telegram_media_over_cap_is_skipped
 test_sync_discord_to_qqbot_prefix
 test_sync_qqbot_image_to_telegram
 test_sync_qqbot_image_to_discord

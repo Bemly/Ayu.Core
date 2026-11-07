@@ -248,3 +248,165 @@ _sync_tg_animation_to_dc() {
 		log_err "sync: tg->dc anim FAIL: $_ERROR"; rm -f "$_tg_df_path"; return 1
 	fi
 }
+
+# _sync_tg_media_to_qqbot <raw> <token> <sender>
+# Forward TG media to the QQ official bot (group/* or private/*).
+#
+# The bot API accepts binary media either as base64 `file_data` (capped by
+# QQBOT_FILE_DATA_MAX, 5 MB) or as a public URL. The TG download URL embeds our
+# bot token and only answers with the CF worker's X-Ayu-Token header, so it can
+# never be handed to QQ as a public URL. Single path: download → base64 upload.
+# Items above the cap are logged and skipped — no silent downgrade to a file.
+#
+# file_type mapping (see adapter/qqbot/message.sh): 1 image, 2 video, 3 voice,
+# 4 file. Static stickers are inline images; video stickers (.webm) and lottie
+# (.tgs) cannot be rendered inline by the platform, so they keep their own kind
+# (video / file) instead of being pushed through the image path.
+_sync_tg_media_to_qqbot() {
+	_ftq_raw="$1" _ftq_tid="$2" _ftq_sender="$3"
+	case "$_ftq_tid" in
+		channel/*) log_debug "sync: tg→qqbot channel media unsupported, skipped"; return 1 ;;
+	esac
+	_ftq_kind="" _ftq_fid="" _ftq_ty="" _ftq_fn="" _ftq_lbl=""
+
+	_ftq_st="$(json_get "$_ftq_raw" sticker 2>/dev/null)" || _ftq_st=""
+	case "$_ftq_st" in
+	''|NOTFOUND) ;;
+	*)
+		_ftq_fid="$(json_get "$_ftq_st" file_id 2>/dev/null)" || _ftq_fid=""
+		_ftq_kind="sticker" _ftq_lbl="贴纸"
+		if [ "$(json_get "$_ftq_st" is_video 2>/dev/null)" = "true" ]; then
+			_ftq_ty=2 _ftq_fn="sticker.webm"
+		elif [ "$(json_get "$_ftq_st" is_animated 2>/dev/null)" = "true" ]; then
+			_ftq_ty=4 _ftq_fn="sticker.tgs"
+		else
+			_ftq_ty=1 _ftq_fn="sticker.webp"
+		fi
+		;;
+	esac
+
+	if [ -z "$_ftq_kind" ]; then
+		_ftq_ph="$(json_get "$_ftq_raw" photo 2>/dev/null)" || _ftq_ph=""
+		case "$_ftq_ph" in
+		''|NOTFOUND) ;;
+		*)
+			# photo is an array of sizes; the last entry is the largest one
+			_ftq_fid="$(printf '%s' "$_ftq_ph" | sed -n 's/.*"file_id":"\([^"]*\)".*/\1/p' | tail -1)"
+			_ftq_kind="photo" _ftq_ty=1 _ftq_fn="photo.jpg" _ftq_lbl="图片"
+			;;
+		esac
+	fi
+
+	if [ -z "$_ftq_kind" ]; then
+		_ftq_an="$(json_get "$_ftq_raw" animation 2>/dev/null)" || _ftq_an=""
+		case "$_ftq_an" in
+		''|NOTFOUND) ;;
+		*)
+			_ftq_fid="$(json_get "$_ftq_an" file_id 2>/dev/null)" || _ftq_fid=""
+			_ftq_kind="animation" _ftq_lbl="GIF"
+			if [ "$(json_get "$_ftq_an" mime_type 2>/dev/null)" = "image/gif" ]; then
+				_ftq_ty=1 _ftq_fn="animation.gif"
+			else
+				_ftq_ty=2 _ftq_fn="animation.mp4"
+			fi
+			;;
+		esac
+	fi
+
+	if [ -z "$_ftq_kind" ]; then
+		_ftq_vd="$(json_get "$_ftq_raw" video 2>/dev/null)" || _ftq_vd=""
+		case "$_ftq_vd" in
+		''|NOTFOUND) ;;
+		*)
+			_ftq_fid="$(json_get "$_ftq_vd" file_id 2>/dev/null)" || _ftq_fid=""
+			_ftq_kind="video" _ftq_ty=2 _ftq_fn="video.mp4" _ftq_lbl="视频"
+			;;
+		esac
+	fi
+
+	if [ -z "$_ftq_kind" ]; then
+		_ftq_vc="$(json_get "$_ftq_raw" voice 2>/dev/null)" || _ftq_vc=""
+		case "$_ftq_vc" in
+		''|NOTFOUND) ;;
+		*)
+			_ftq_fid="$(json_get "$_ftq_vc" file_id 2>/dev/null)" || _ftq_fid=""
+			_ftq_kind="voice" _ftq_ty=3 _ftq_fn="voice.ogg" _ftq_lbl="语音"
+			;;
+		esac
+	fi
+
+	if [ -z "$_ftq_kind" ]; then
+		_ftq_au="$(json_get "$_ftq_raw" audio 2>/dev/null)" || _ftq_au=""
+		case "$_ftq_au" in
+		''|NOTFOUND) ;;
+		*)
+			_ftq_fid="$(json_get "$_ftq_au" file_id 2>/dev/null)" || _ftq_fid=""
+			_ftq_fn="$(json_get "$_ftq_au" file_name 2>/dev/null)" || _ftq_fn=""
+			case "$_ftq_fn" in ''|NOTFOUND|null) _ftq_fn="audio.mp3" ;; esac
+			_ftq_kind="audio" _ftq_ty=3 _ftq_lbl="音频"
+			;;
+		esac
+	fi
+
+	if [ -z "$_ftq_kind" ]; then
+		_ftq_dc="$(json_get "$_ftq_raw" document 2>/dev/null)" || _ftq_dc=""
+		case "$_ftq_dc" in
+		''|NOTFOUND) ;;
+		*)
+			_ftq_fid="$(json_get "$_ftq_dc" file_id 2>/dev/null)" || _ftq_fid=""
+			_ftq_fn="$(json_get "$_ftq_dc" file_name 2>/dev/null)" || _ftq_fn=""
+			case "$_ftq_fn" in ''|NOTFOUND|null) _ftq_fn="document.bin" ;; esac
+			_ftq_kind="document" _ftq_ty=4 _ftq_lbl="文件"
+			;;
+		esac
+	fi
+
+	case "$_ftq_fid" in ''|NOTFOUND|null) return 1 ;; esac
+
+	mkdir -p /tmp/img 2>/dev/null
+	_tg_download_file "$_ftq_fid" "qqbot-tg-$_ftq_kind" "tg->qqbot $_ftq_kind" \
+		|| { log_err "sync: tg→qqbot $_ftq_kind download FAIL: $_ERROR"; return 1; }
+	_ftq_tmp="$_tg_df_path"
+
+	_ftq_sz="$(wc -c <"$_ftq_tmp" 2>/dev/null | tr -d ' ')"
+	_ftq_max="${QQBOT_FILE_DATA_MAX:-5242880}"
+	if [ -n "$_ftq_sz" ] && [ "$_ftq_sz" -gt "$_ftq_max" ] 2>/dev/null; then
+		log_warn "sync: tg→qqbot $_ftq_kind skipped, $_ftq_sz bytes > ${_ftq_max} file_data cap"
+		rm -f "$_ftq_tmp"
+		return 1
+	fi
+
+	_ftq_cap="✈️ $_ftq_sender: [$_ftq_lbl]"
+	# The send helpers run inside $(), so $QQBOT_ERR_FILE carries the reason out.
+	_ftq_erf="/tmp/qqbot-err.$$"; : >"$_ftq_erf"
+	QQBOT_ERR_FILE="$_ftq_erf" _ERROR=""
+	case "$_ftq_tid" in
+	group/*)
+		if qqbot_send_group_file_typed "${_ftq_tid#group/}" "$_ftq_tmp" "$_ftq_ty" "$_ftq_fn" "$_ftq_cap" >/dev/null 2>/dev/null; then
+			log_info "sync: tg→qqbot group ${_ftq_tid#group/} $_ftq_kind OK (type=$_ftq_ty)"
+			_ftq_rc=0
+		else
+			_ftq_rc=1
+		fi
+		;;
+	private/*)
+		if qqbot_send_c2c_file_typed "${_ftq_tid#private/}" "$_ftq_tmp" "$_ftq_ty" "$_ftq_fn" "$_ftq_cap" >/dev/null 2>/dev/null; then
+			log_info "sync: tg→qqbot private ${_ftq_tid#private/} $_ftq_kind OK (type=$_ftq_ty)"
+			_ftq_rc=0
+		else
+			_ftq_rc=1
+		fi
+		;;
+	*)
+		_ftq_rc=1
+		;;
+	esac
+	if [ "$_ftq_rc" != "0" ]; then
+		_ftq_err="$(tail -n 1 "$_ftq_erf" 2>/dev/null)"
+		[ -n "$_ftq_err" ] || _ftq_err="$_ERROR"
+		log_err "sync: tg→qqbot $_ftq_tid $_ftq_kind FAIL (type=$_ftq_ty): ${_ftq_err:-no detail}"
+	fi
+	unset QQBOT_ERR_FILE
+	rm -f "$_ftq_tmp" "$_ftq_erf"
+	return "$_ftq_rc"
+}

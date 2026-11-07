@@ -49,6 +49,25 @@ QQ Bot（`qqbot`）是与 QQ（Milky）完全不同的适配器：ID 是 `openid
 | 撤回 | rev-map → `deleteMessage` | — | rev-map → `dc_message_delete` | — | —（DC 删除无 webhook 通知） |
 | 位置/联系人/骰子/投票 | 文字标签 | 文字标签 | 文字标签 | 文字标签 | — |
 
+### TG 源 → QQ Bot（官方）
+
+此前 `qqbot` 目标只发文字，TG 的贴纸/图片到 QQ 只剩一行 `[贴纸: ⭐]` 标签，媒体本体没过去。
+现在 `handler.sh` 在 qqbot 目标发完文字后调用 `_sync_tg_media_to_qqbot()`：先 `tg_getFile` 下载，
+再按 `file_type` 以 base64 `file_data` 上传。超过 `QQBOT_FILE_DATA_MAX`（5 MB 硬上限）时记日志跳过，
+**不降级成"文件"**——降级只会把"没发出去"伪装成"发成了文件"。
+
+| TG 内容 | `file_type` | 文件名 | QQ 侧表现 |
+| --- | --- | --- | --- |
+| 静态贴纸（`is_video=false`） | 1 图片 | `sticker.webp` | 内联图片 |
+| 视频贴纸（`is_video=true`） | 2 视频 | `sticker.webm` | 可播放视频 |
+| 动态贴纸 TGS（`is_animated=true`） | 4 文件 | `sticker.tgs` | 文件（平台无法内联渲染 Lottie） |
+| 图片 `photo[]`（取最大档） | 1 图片 | `photo.jpg` | 内联图片 |
+| 动图 `animation` | 1 / 2 | `animation.gif` / `animation.mp4` | 按 `mime_type` 决定 |
+| 视频 / 语音 / 音频 / 文档 | 2 / 3 / 3 / 4 | `video.mp4` / `voice.ogg` / 原名 / `document.bin` | 对应消息类型 |
+
+不走 URL 直传：TG 下载 URL 里带 bot token，且只认 CF Worker 的 `X-Ayu-Token` 头，QQ 侧拉不到。
+`channel/*` 目标暂不支持媒体（官方 API 无对应上传接口），`log_debug` 记录后跳过。
+
 ### QQ Bot 源（webhook 事件）
 
 官方 webhook 事件的媒体**只**以 `attachments`（`url` + `content_type`，无本地路径、无 segment）形式下发，
