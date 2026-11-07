@@ -260,73 +260,78 @@ _sync_source_id() {
 # Upload file to Telegram via multipart/form-data
 # Usage: _sync_tg_multipart <chat> <thread> <file> <filename> <method> <field> [mime] [caption] [duration]
 _sync_tg_multipart() {
-	_chat="$1" _thr="$2" _file="$3" _fname="$4" _method="$5" _field="$6"
-	_mime="${7:-application/octet-stream}" _cap="${8:-}" _dur="${9:-}"
-	_bound="ayu-$$-$(date +%s)"
-	_tmp="/tmp/tg-up-$$"
-	> "$_tmp"
-	printf '--%s\r\n' "$_bound" >> "$_tmp"
-	printf 'Content-Disposition: form-data; name="chat_id"\r\n\r\n' >> "$_tmp"
-	printf '%s\r\n' "$_chat" >> "$_tmp"
-	if [ -n "$_thr" ]; then
-		printf '--%s\r\n' "$_bound" >> "$_tmp"
-		printf 'Content-Disposition: form-data; name="message_thread_id"\r\n\r\n' >> "$_tmp"
-		printf '%s\r\n' "$_thr" >> "$_tmp"
+	# NOTE: hush has no `local`. Every scratch name is prefixed (_tgm_) so the
+	# body cannot clobber the caller's variables — leaking the multipart file of
+	# the *caller* (which it deletes after upload) was the historical bug.
+	_tgm_chat="$1" _tgm_thr="$2" _tgm_file="$3" _tgm_fname="$4"
+	_tgm_method="$5" _tgm_field="$6"
+	_tgm_mime="${7:-application/octet-stream}" _tgm_cap="${8:-}" _tgm_dur="${9:-}"
+	_tgm_bound="ayu-$$-$(date +%s)"
+	_tgm_tmp="/tmp/tg-up-$$"
+	> "$_tgm_tmp"
+	printf '--%s\r\n' "$_tgm_bound" >> "$_tgm_tmp"
+	printf 'Content-Disposition: form-data; name="chat_id"\r\n\r\n' >> "$_tgm_tmp"
+	printf '%s\r\n' "$_tgm_chat" >> "$_tgm_tmp"
+	if [ -n "$_tgm_thr" ]; then
+		printf '--%s\r\n' "$_tgm_bound" >> "$_tgm_tmp"
+		printf 'Content-Disposition: form-data; name="message_thread_id"\r\n\r\n' >> "$_tgm_tmp"
+		printf '%s\r\n' "$_tgm_thr" >> "$_tgm_tmp"
 	fi
-	printf '--%s\r\n' "$_bound" >> "$_tmp"
-	printf 'Content-Disposition: form-data; name="%s"; filename="%s"\r\n' "$_field" "$_fname" >> "$_tmp"
-	printf 'Content-Type: %s\r\n\r\n' "$_mime" >> "$_tmp"
-	cat "$_file" >> "$_tmp"
-	printf '\r\n' >> "$_tmp"
-	if [ -n "$_cap" ]; then
-		printf '--%s\r\n' "$_bound" >> "$_tmp"
-		printf 'Content-Disposition: form-data; name="caption"\r\n\r\n' >> "$_tmp"
-		printf '%s\r\n' "$_cap" >> "$_tmp"
+	printf '--%s\r\n' "$_tgm_bound" >> "$_tgm_tmp"
+	printf 'Content-Disposition: form-data; name="%s"; filename="%s"\r\n' "$_tgm_field" "$_tgm_fname" >> "$_tgm_tmp"
+	printf 'Content-Type: %s\r\n\r\n' "$_tgm_mime" >> "$_tgm_tmp"
+	cat "$_tgm_file" >> "$_tgm_tmp"
+	printf '\r\n' >> "$_tgm_tmp"
+	if [ -n "$_tgm_cap" ]; then
+		printf '--%s\r\n' "$_tgm_bound" >> "$_tgm_tmp"
+		printf 'Content-Disposition: form-data; name="caption"\r\n\r\n' >> "$_tgm_tmp"
+		printf '%s\r\n' "$_tgm_cap" >> "$_tgm_tmp"
 	fi
-	if [ -n "$_dur" ]; then
-		printf '--%s\r\n' "$_bound" >> "$_tmp"
-		printf 'Content-Disposition: form-data; name="duration"\r\n\r\n' >> "$_tmp"
-		printf '%s\r\n' "$_dur" >> "$_tmp"
+	if [ -n "$_tgm_dur" ]; then
+		printf '--%s\r\n' "$_tgm_bound" >> "$_tgm_tmp"
+		printf 'Content-Disposition: form-data; name="duration"\r\n\r\n' >> "$_tgm_tmp"
+		printf '%s\r\n' "$_tgm_dur" >> "$_tgm_tmp"
 	fi
-	printf '--%s--\r\n' "$_bound" >> "$_tmp"
-	_url="${TG_API_BASE}/${_method}"
-	if http_post_file "$_url" "$_tmp" \
-		"Content-Type: multipart/form-data; boundary=$_bound" \
+	printf '--%s--\r\n' "$_tgm_bound" >> "$_tgm_tmp"
+	_tgm_url="${TG_API_BASE}/${_tgm_method}"
+	if http_post_file "$_tgm_url" "$_tgm_tmp" \
+		"Content-Type: multipart/form-data; boundary=$_tgm_bound" \
 		"$_TG_AUTH" >/dev/null; then
-		rm -f "$_tmp"; return 0
+		rm -f "$_tgm_tmp"; return 0
 	else
-		rm -f "$_tmp"; return 1
+		rm -f "$_tgm_tmp"; return 1
 	fi
 }
 
 # Upload file to Discord via multipart/form-data (bot auth)
 # Usage: _sync_dc_multipart <channel_id> <file_path> <filename> <mime> [caption]
 _sync_dc_multipart() {
-	_cid="$1" _file="$2" _fname="$3" _mime="$4" _cap="${5:-}"
-	_bound="ayu-dc-$$-$(date +%s)"
-	_tmp="/tmp/dc-up-$$"
-	> "$_tmp"
+	# Same no-`local` rule as above: all scratch names use the _dcm_ prefix.
+	_dcm_cid="$1" _dcm_file="$2" _dcm_fname="$3" _dcm_mime="$4" _dcm_cap="${5:-}"
+	_dcm_bound="ayu-dc-$$-$(date +%s)"
+	_dcm_tmp="/tmp/dc-up-$$"
+	> "$_dcm_tmp"
 	# JSON payload part
-	_json="$(json_obj "content" "$_cap")"
-	printf '--%s\r\n' "$_bound" >> "$_tmp"
-	printf 'Content-Disposition: form-data; name="payload_json"\r\n' >> "$_tmp"
-	printf 'Content-Type: application/json\r\n\r\n' >> "$_tmp"
-	printf '%s\r\n' "$_json" >> "$_tmp"
+	_dcm_json="$(json_obj "content" "$_dcm_cap")"
+	printf '--%s\r\n' "$_dcm_bound" >> "$_dcm_tmp"
+	printf 'Content-Disposition: form-data; name="payload_json"\r\n' >> "$_dcm_tmp"
+	printf 'Content-Type: application/json\r\n\r\n' >> "$_dcm_tmp"
+	printf '%s\r\n' "$_dcm_json" >> "$_dcm_tmp"
 	# File part
-	printf '--%s\r\n' "$_bound" >> "$_tmp"
-	printf 'Content-Disposition: form-data; name="files[0]"; filename="%s"\r\n' "$_fname" >> "$_tmp"
-	printf 'Content-Type: %s\r\n\r\n' "$_mime" >> "$_tmp"
-	cat "$_file" >> "$_tmp"
-	printf '\r\n--%s--\r\n' "$_bound" >> "$_tmp"
+	printf '--%s\r\n' "$_dcm_bound" >> "$_dcm_tmp"
+	printf 'Content-Disposition: form-data; name="files[0]"; filename="%s"\r\n' "$_dcm_fname" >> "$_dcm_tmp"
+	printf 'Content-Type: %s\r\n\r\n' "$_dcm_mime" >> "$_dcm_tmp"
+	cat "$_dcm_file" >> "$_dcm_tmp"
+	printf '\r\n--%s--\r\n' "$_dcm_bound" >> "$_dcm_tmp"
 	# Send
-	_url="${DC_API_BASE}/channels/${_cid}/messages"
-	if http_post_file "$_url" "$_tmp" \
-		"Content-Type: multipart/form-data; boundary=$_bound" \
+	_dcm_url="${DC_API_BASE}/channels/${_dcm_cid}/messages"
+	if http_post_file "$_dcm_url" "$_dcm_tmp" \
+		"Content-Type: multipart/form-data; boundary=$_dcm_bound" \
 		"Authorization: Bot ${DC_TOKEN}" \
 			"${_DC_AYU_AUTH:-}" >/dev/null; then
-		rm -f "$_tmp"; return 0
+		rm -f "$_dcm_tmp"; return 0
 	else
-		rm -f "$_tmp"; return 1
+		rm -f "$_dcm_tmp"; return 1
 	fi
 }
 

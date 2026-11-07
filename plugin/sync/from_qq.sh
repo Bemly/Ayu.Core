@@ -128,7 +128,7 @@ _sync_qq_record_to_tg() {
 		else
 			log_err "sync: qq-tg voice FAIL: $_ERROR"
 		fi
-		rm -f "$_tmp"	rm -f "$_tmp" "$_mtmp"
+		rm -f "$_tmp"
 	done
 	log_info "sync: qq-tg voice sent=$_sent"
 	[ $_sent -gt 0 ] && return 0 || return 1
