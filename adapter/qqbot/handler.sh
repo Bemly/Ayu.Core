@@ -26,31 +26,66 @@ qqbot_reply_event() {
 	_qp_a="$(json_get "$_qp_d" author 2>/dev/null)" || _qp_a=""
 	[ "$_qp_mode" = "active" ] && _qp_mid=""
 
+	# The send helpers run inside $(...) so the parent _ERROR never sees their
+	# failure reason. Route the detail through QQBOT_ERR_FILE, otherwise the
+	# log only ever shows "send failed ()" — which hid a body-level rejection
+	# (QQ 50015001) for a whole debugging session.
+	_qp_ef="${QQBOT_ERR_FILE:-}"
+	_qp_efile="/tmp/qqbot-reply.$$"; : >"$_qp_efile"; QQBOT_ERR_FILE="$_qp_efile"
+
 	if [ -n "$_qp_gid" ]; then
-		qqbot_message_send_group "$_qp_gid" "$_qp_text" "$_qp_mid" 1 >/dev/null 2>&1 \
-			&& return 0
-		_ERROR="qqbot.reply: group ($_qp_mode) send failed ($_ERROR)"
+		if qqbot_message_send_group "$_qp_gid" "$_qp_text" "$_qp_mid" 1 >/dev/null 2>&1; then
+			_qqbot_reply_release
+			return 0
+		fi
+		_ERROR="qqbot.reply: group ($_qp_mode) send failed ($(_qqbot_reply_why))"
+		_qqbot_reply_release
 		log_err "$_ERROR"
 		return 1
 	fi
 	if [ -n "$_qp_ch" ]; then
-		qqbot_message_send_channel "$_qp_ch" "$_qp_text" "$_qp_mid" 1 >/dev/null 2>&1 \
-			&& return 0
-		_ERROR="qqbot.reply: channel ($_qp_mode) send failed ($_ERROR)"
+		if qqbot_message_send_channel "$_qp_ch" "$_qp_text" "$_qp_mid" 1 >/dev/null 2>&1; then
+			_qqbot_reply_release
+			return 0
+		fi
+		_ERROR="qqbot.reply: channel ($_qp_mode) send failed ($(_qqbot_reply_why))"
+		_qqbot_reply_release
 		log_err "$_ERROR"
 		return 1
 	fi
 	_qp_uid="$(json_get "$_qp_a" user_openid 2>/dev/null)" || _qp_uid=""
 	[ -n "$_qp_uid" ] || _qp_uid="$(json_get "$_qp_a" id 2>/dev/null)"
 	if [ -n "$_qp_uid" ]; then
-		qqbot_message_send_c2c "$_qp_uid" "$_qp_text" "$_qp_mid" 1 >/dev/null 2>&1 \
-			&& return 0
-		_ERROR="qqbot.reply: c2c ($_qp_mode) send failed ($_ERROR)"
+		if qqbot_message_send_c2c "$_qp_uid" "$_qp_text" "$_qp_mid" 1 >/dev/null 2>&1; then
+			_qqbot_reply_release
+			return 0
+		fi
+		_ERROR="qqbot.reply: c2c ($_qp_mode) send failed ($(_qqbot_reply_why))"
+		_qqbot_reply_release
 		log_err "$_ERROR"
 		return 1
 	fi
+	_qqbot_reply_release
 	_ERROR="qqbot.handler: no reply target in event"
 	return 1
+}
+
+# _qqbot_reply_why — last detail recorded by the send helper, one line
+_qqbot_reply_why() {
+	_w="$(tail -n 1 "${_qp_efile:-/dev/null}" 2>/dev/null)"
+	[ -n "$_w" ] || _w="no detail"
+	printf '%s' "$_w"
+}
+
+# _qqbot_reply_release — drop the temp file and restore the caller's variable
+_qqbot_reply_release() {
+	rm -f "${_qp_efile:-/dev/null}" 2>/dev/null
+	if [ -n "${_qp_ef:-}" ]; then
+		QQBOT_ERR_FILE="$_qp_ef"
+	else
+		unset QQBOT_ERR_FILE
+	fi
+	return 0
 }
 
 qqbot_handler_ping() {
