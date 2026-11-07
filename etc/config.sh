@@ -22,6 +22,11 @@ TG_API_BASE="https://${TG_API_HOST}/bot${TG_TOKEN}"
 
 # ---- Bot self-IDs (loop prevention) ----
 QQ_BOT_ID="${QQ_BOT_ID:-3156037162}"
+# ---- QQ Bot self openid (command target check) ----
+# The bot's own openid, as it appears in a message's leading <@...> mention.
+# Set on a bot that receives the full group stream (GROUP_MESSAGE_CREATE):
+# commands are only honoured when this exact openid is mentioned first.
+QQBOT_BOT_OPENID="${QQBOT_BOT_OPENID:-}"
 TG_BOT_ID="${TG_BOT_ID:-8723729335}"
 
 # ---- Discord ----

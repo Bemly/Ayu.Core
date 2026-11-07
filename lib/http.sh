@@ -78,6 +78,9 @@ _http_build_req() {
 	printf '%s %s HTTP/1.0\r\n' "$_hmethod" "$_hrpath" >> "$_hreq"
 	printf 'Host: %s\r\n' "$_hrhost" >> "$_hreq"
 	for _hdr in "$@"; do
+		# an unset optional header is passed as "" by callers — emitting it
+		# would write a bare CRLF and terminate the header block early
+		[ -n "$_hdr" ] || continue
 		printf '%s\r\n' "$_hdr" >> "$_hreq"
 	done
 	printf 'Connection: close\r\n' >> "$_hreq"
@@ -131,6 +134,17 @@ _http_raw() {
 
 	# Mock short-circuit
 	if [ "${MOCK_HTTP:-0}" = "1" ]; then
+		# request capture for tests (MOCK_LOG set by test/mock/mock_http.sh);
+		# a no-op in production, where MOCK_HTTP is never set
+		if [ -n "${MOCK_LOG:-}" ]; then
+			{
+				printf '=== REQ %s %s\n' "$_hmethod" "$_hrurl"
+				# mirror _http_build_req: "" means "header not set"
+				for _mh in "$@"; do
+					[ -n "$_mh" ] && printf 'HDR %s\n' "$_mh"
+				done
+			} >> "$MOCK_LOG"
+		fi
 		if [ "${MOCK_FAIL:-0}" = "1" ]; then
 			_ERROR="http_get: mock failure"
 			return "${MOCK_STATUS:-1}"

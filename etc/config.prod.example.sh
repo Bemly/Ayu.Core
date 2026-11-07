@@ -15,6 +15,11 @@ QQBOT_APP_SECRET=""
 QQBOT_API_BASE="https://api.bot.qq.com"
 # 1 = reject unsigned callbacks (fails closed if the Ed25519 helper is missing)
 QQBOT_VERIFY_SIG="1"
+# ---- QQ Bot self openid (command target check) ----
+# The bot's own openid, as it appears in a message's leading <@...> mention.
+# Set on a bot that receives the full group stream (GROUP_MESSAGE_CREATE):
+# commands are only honoured when this exact openid is mentioned first.
+QQBOT_BOT_OPENID="${QQBOT_BOT_OPENID:-}"
 
 # ---- Webhook auth ----------------------------------------------------------
 # Do NOT set WEBHOOK_SECRET here. This file is sourced AFTER etc/config.sh, so

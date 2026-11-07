@@ -8,27 +8,46 @@
 
 . "$_HB/adapter/qqbot/message.sh"
 
-# qqbot_reply_event <raw d> <text> — reply in the same scene the event came from
+# qqbot_reply_event <raw d> <text> [passive|active] — reply in the same scene
+#
+# Passive replies echo msg_id and are only accepted for events QQ itself marks
+# as @-messages (GROUP_AT_MESSAGE_CREATE / C2C_MESSAGE_CREATE). A bot subscribed
+# to the full group stream receives plain GROUP_MESSAGE_CREATE instead, and the
+# platform rejects a msg_id reply there — silently, without an HTTP error the
+# caller can see. Such events therefore answer with an active message (no
+# msg_id). The mode is chosen once by the caller from the event type and passed
+# in; nothing here retries in the other mode, so a failed reply stays visible
+# in bot.log instead of being papered over.
 qqbot_reply_event() {
-	_qp_d="$1" _qp_text="$2"
+	_qp_d="$1" _qp_text="$2" _qp_mode="${3:-passive}"
 	_qp_gid="$(json_get "$_qp_d" group_openid 2>/dev/null)" || _qp_gid=""
 	_qp_mid="$(json_get "$_qp_d" id 2>/dev/null)" || _qp_mid=""
 	_qp_ch="$(json_get "$_qp_d" channel_id 2>/dev/null)" || _qp_ch=""
 	_qp_a="$(json_get "$_qp_d" author 2>/dev/null)" || _qp_a=""
+	[ "$_qp_mode" = "active" ] && _qp_mid=""
 
 	if [ -n "$_qp_gid" ]; then
-		qqbot_message_send_group "$_qp_gid" "$_qp_text" "$_qp_mid" 1
-		return $?
+		qqbot_message_send_group "$_qp_gid" "$_qp_text" "$_qp_mid" 1 >/dev/null 2>&1 \
+			&& return 0
+		_ERROR="qqbot.reply: group ($_qp_mode) send failed ($_ERROR)"
+		log_err "$_ERROR"
+		return 1
 	fi
 	if [ -n "$_qp_ch" ]; then
-		qqbot_message_send_channel "$_qp_ch" "$_qp_text" "$_qp_mid" 1
-		return $?
+		qqbot_message_send_channel "$_qp_ch" "$_qp_text" "$_qp_mid" 1 >/dev/null 2>&1 \
+			&& return 0
+		_ERROR="qqbot.reply: channel ($_qp_mode) send failed ($_ERROR)"
+		log_err "$_ERROR"
+		return 1
 	fi
 	_qp_uid="$(json_get "$_qp_a" user_openid 2>/dev/null)" || _qp_uid=""
 	[ -n "$_qp_uid" ] || _qp_uid="$(json_get "$_qp_a" id 2>/dev/null)"
 	if [ -n "$_qp_uid" ]; then
-		qqbot_message_send_c2c "$_qp_uid" "$_qp_text" "$_qp_mid" 1
-		return $?
+		qqbot_message_send_c2c "$_qp_uid" "$_qp_text" "$_qp_mid" 1 >/dev/null 2>&1 \
+			&& return 0
+		_ERROR="qqbot.reply: c2c ($_qp_mode) send failed ($_ERROR)"
+		log_err "$_ERROR"
+		return 1
 	fi
 	_ERROR="qqbot.handler: no reply target in event"
 	return 1

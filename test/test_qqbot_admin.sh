@@ -161,6 +161,39 @@ test_qqbot_admin_escaped_mentions() {
 	_qa_unsetup
 }
 
+# A bot subscribed to the full group stream receives @-messages as
+# GROUP_MESSAGE_CREATE — QQ never sends GROUP_AT_MESSAGE_CREATE in that mode.
+# Commands have to work there too, while plain chatter must stay untouched.
+test_qqbot_admin_full_stream_commands() {
+	_qa_setup
+	qqbot_admin_handle GROUP_MESSAGE_CREATE \
+		"{\"content\":\"<@0000000000000000000000000000000B> <@$_QA_P> 宝宝\"}" G1 "$_QA_ADMIN"
+	assert_ok "full-stream bind consumed"
+	assert_eq "$(qqbot_nick_get G1 "$_QA_P")" "宝宝" "full-stream mention bound"
+	qqbot_hist_append G1 M20 "$_QA_P" "测试句"
+	qqbot_admin_handle GROUP_MESSAGE_CREATE \
+		'{"content":"<@0000000000000000000000000000000B> 历史"}' G1 "$_QA_ADMIN"
+	assert_ok "full-stream history consumed"
+	assert_contains "$_QA_REPLY" "最近" "full-stream history replied"
+	assert_contains "$_QA_REPLY" "测试句" "full-stream history body"
+	_qa_unsetup
+}
+
+test_qqbot_admin_full_stream_requires_bot_mention() {
+	_qa_setup
+	QQBOT_BOT_OPENID="0000000000000000000000000000000B"
+	qqbot_admin_handle GROUP_MESSAGE_CREATE \
+		"{\"content\":\"<@$_QA_P> 历史\"}" G1 "$_QA_ADMIN"
+	assert_fail "mention of somebody else is not a command"
+	qqbot_admin_handle GROUP_MESSAGE_CREATE \
+		'{"content":"<@0000000000000000000000000000000B> 历史"}' G1 "$_QA_ADMIN"
+	assert_ok "bot mention is still a command"
+	QQBOT_BOT_OPENID=""
+	_qa_unsetup
+}
+
+test_qqbot_admin_full_stream_commands
+test_qqbot_admin_full_stream_requires_bot_mention
 test_qqbot_admin_escaped_mentions
 test_qqbot_admin_ignores_plain_message
 test_qqbot_admin_rejects_non_admin

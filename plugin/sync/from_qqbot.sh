@@ -144,6 +144,7 @@ _sync_qqbot_media() {
 		_qbm_fn="$(_qqbot_filename_with_ext "$_qbm_ct" "$_qbm_fn")"
 		_qbm_mime="$(_qqbot_attach_mime "$_qbm_ct" "$_qbm_fn")"
 		_qbm_cap="🅠 $_qbm_sender: [$(_qqbot_attach_label "$_qbm_ct")]"
+		log_info "sync: qqbot→$_qbm_pf item $_qbm_n ct=$_qbm_ct fn=$_qbm_fn size=$(wc -c <"$_qbm_tmp" 2>/dev/null | tr -d ' ')"
 
 		if [ "$_qbm_pf" = "dc" ]; then
 			if _sync_dc_multipart "$_qbm_cid" "$_qbm_tmp" "$_qbm_fn" "$_qbm_mime" "$_qbm_cap"; then

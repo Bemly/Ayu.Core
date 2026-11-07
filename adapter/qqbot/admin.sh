@@ -138,10 +138,10 @@ qqbot_admin_usage() {
 }
 
 qqbot_admin_history() {
-	_qah_d="$1" _qah_gid="$2"
+	_qah_d="$1" _qah_gid="$2" _qah_mode="${3:-passive}"
 	_qah_lines="$(qqbot_hist_tail "$_qah_gid" "$QQBOT_HIST_SHOW")"
 	if [ -z "$_qah_lines" ]; then
-		qqbot_reply_event "$_qah_d" "还没有记录"
+		qqbot_reply_event "$_qah_d" "还没有记录" "$_qah_mode"
 		return 0
 	fi
 	_qah_txt="最近 $QQBOT_HIST_SHOW 条：
@@ -158,7 +158,7 @@ $(printf '%s\n' "$_qah_lines" | awk -F '\t' -v nkdir="$QQBOT_NICK_DIR" -v gid="$
 		if (name == "") name = "qq#" substr($2, 1, 7)
 		printf "%d. %s\n   id=%s\n   %s\n", i, name, $1, $3
 	}')"
-	qqbot_reply_event "$_qah_d" "$_qah_txt"
+	qqbot_reply_event "$_qah_d" "$_qah_txt" "$_qah_mode"
 }
 
 # qqbot_admin_handle <event_type> <raw d> <group_openid> <openid>
@@ -167,8 +167,18 @@ $(printf '%s\n' "$_qah_lines" | awk -F '\t' -v nkdir="$QQBOT_NICK_DIR" -v gid="$
 qqbot_admin_handle() {
 	_qam_evt="$1" _qam_d="$2" _qam_gid="$3" _qam_uid="$4"
 	[ -n "$_qam_gid" ] || return 1
+	# An @-message is normally delivered as GROUP_AT_MESSAGE_CREATE, but a bot
+	# subscribed to the full group stream receives the same message under
+	# GROUP_MESSAGE_CREATE instead — QQ sends one type, not both. Accept either
+	# and verify below that the bot itself is the leading mention, so ordinary
+	# chatter never looks like a command.
+	# A full-stream GROUP_MESSAGE_CREATE cannot be answered with a passive reply
+	# (QQ rejects the msg_id echo), so commands arriving that way must use an
+	# active message. AT events keep the passive form.
+	_qam_mode="passive"
 	case "$_qam_evt" in
-		GROUP_AT_MESSAGE_CREATE|AT_MESSAGE_CREATE) : ;;
+		GROUP_AT_MESSAGE_CREATE|AT_MESSAGE_CREATE) _qam_at=1 ;;
+		GROUP_MESSAGE_CREATE) _qam_at=0 _qam_mode="active" ;;
 		*) return 1 ;;
 	esac
 	_qam_c="$(json_get "$_qam_d" content 2>/dev/null)" || _qam_c=""
@@ -182,11 +192,20 @@ qqbot_admin_handle() {
 		| sed 's/^<@//; s/>$//; s/^!//')"
 	_qam_rest="$(printf '%s' "$_qam_c" | sed 's/<@[A-Za-z0-9!]\{8,\}>//g' \
 		| sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s/[[:space:]][[:space:]]*/ /g')"
+	# full-stream message: only an @-message aimed at the bot is a command.
+	# QQBOT_BOT_OPENID pins that to the bot's own openid; when unset, any
+	# leading mention is accepted and the text itself must still parse.
+	if [ "$_qam_at" = 0 ]; then
+		[ -n "$_qam_m" ] || return 1
+		if [ -n "${QQBOT_BOT_OPENID:-}" ]; then
+			[ "$(printf '%s\n' "$_qam_m" | sed -n 1p)" = "$QQBOT_BOT_OPENID" ] || return 1
+		fi
+	fi
 	[ -n "$_qam_rest" ] || return 1
 
 	case "$_qam_rest" in
 		历史|/history|history)
-			qqbot_admin_history "$_qam_d" "$_qam_gid"
+			qqbot_admin_history "$_qam_d" "$_qam_gid" "$_qam_mode"
 			return 0
 			;;
 	esac
@@ -206,35 +225,35 @@ qqbot_admin_handle() {
 	case "$_qam_tgt" in *[!0-9A-Fa-f]*) return 1 ;; esac
 
 	if ! qqbot_is_admin "$_qam_uid"; then
-		qqbot_reply_event "$_qam_d" "只有管理员能绑定昵称"
+		qqbot_reply_event "$_qam_d" "只有管理员能绑定昵称" "$_qam_mode"
 		return 0
 	fi
 
 	_qam_nick="$(printf '%s' "$_qam_nick" | tr -d '<>' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
 	if [ -z "$_qam_nick" ]; then
-		qqbot_reply_event "$_qam_d" "$(qqbot_admin_usage)"
+		qqbot_reply_event "$_qam_d" "$(qqbot_admin_usage)" "$_qam_mode"
 		return 0
 	fi
 
 	_qam_oid="$(qqbot_resolve_openid "$_qam_gid" "$_qam_tgt")"
 	if [ -z "$_qam_oid" ]; then
-		qqbot_reply_event "$_qam_d" "找不到 $_qam_tgt 对应的成员（让他先发一句话，或用完整 openid）"
+		qqbot_reply_event "$_qam_d" "找不到 $_qam_tgt 对应的成员（让他先发一句话，或用完整 openid）" "$_qam_mode"
 		return 0
 	fi
 	_qam_old="$(qqbot_nick_get "$_qam_gid" "$_qam_oid")"
 	if ! qqbot_nick_set "$_qam_gid" "$_qam_oid" "$_qam_nick"; then
-		qqbot_reply_event "$_qam_d" "绑定失败：无法写入映射"
+		qqbot_reply_event "$_qam_d" "绑定失败：无法写入映射" "$_qam_mode"
 		return 1
 	fi
 	_qam_short=$(printf '%s' "$_qam_oid" | cut -c1-7)
 	if [ -z "$_qam_old" ]; then
-		qqbot_reply_event "$_qam_d" "已绑定 qq#$_qam_short = $_qam_nick"
+		qqbot_reply_event "$_qam_d" "已绑定 qq#$_qam_short = $_qam_nick" "$_qam_mode"
 		log_info "qqbot: admin $_qam_uid bound qq#$_qam_short = $_qam_nick"
 	elif [ "$_qam_old" = "$_qam_nick" ]; then
-		qqbot_reply_event "$_qam_d" "昵称未变化：qq#$_qam_short = $_qam_nick"
+		qqbot_reply_event "$_qam_d" "昵称未变化：qq#$_qam_short = $_qam_nick" "$_qam_mode"
 		log_info "qqbot: admin $_qam_uid nickname unchanged qq#$_qam_short = $_qam_nick"
 	else
-		qqbot_reply_event "$_qam_d" "已修改昵称 qq#$_qam_short：$_qam_old → $_qam_nick"
+		qqbot_reply_event "$_qam_d" "已修改昵称 qq#$_qam_short：$_qam_old → $_qam_nick" "$_qam_mode"
 		log_info "qqbot: admin $_qam_uid renamed qq#$_qam_short: $_qam_old -> $_qam_nick"
 	fi
 	return 0
