@@ -210,16 +210,18 @@ _sync_safe_id() {
 # (QQ uses message_seq, TG message_id, DC/QQ-bot id). Reverse maps are keyed on
 # it so a recall on the source platform can delete the forwarded copies.
 _sync_src_msgid() {
-	_sm="$(case "$1" in
-		qq)       json_get "$2" message_seq 2>/dev/null ;;
-		telegram) json_get "$2" message_id 2>/dev/null ;;
-		discord)  json_get "$2" id 2>/dev/null ;;
-		qqbot)    json_get "$2" id 2>/dev/null ;;
-	esac)"
+	# hush cannot parse `case` inside $(...), so collect into a variable first.
+	_ssm=""
+	case "$1" in
+		qq)       _ssm="$(json_get "$2" message_seq 2>/dev/null)" ;;
+		telegram) _ssm="$(json_get "$2" message_id 2>/dev/null)" ;;
+		discord)  _ssm="$(json_get "$2" id 2>/dev/null)" ;;
+		qqbot)    _ssm="$(json_get "$2" id 2>/dev/null)" ;;
+	esac
 	# It becomes the last component of msg-map-rev paths: refuse anything
 	# that is not a plain id (callers treat empty as "no mapping").
-	_sync_safe_id "$_sm" || return 0
-	printf '%s' "$_sm"
+	_sync_safe_id "$_ssm" || return 0
+	printf '%s' "$_ssm"
 }
 
 # Extract source chat/channel/group ID as config lookup key
