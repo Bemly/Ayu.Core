@@ -51,7 +51,10 @@ QQBOT_WEBHOOK_TOKEN="${QQBOT_WEBHOOK_TOKEN:-}"
 # Group admins allowed to bind nicknames to openids with `@bot @someone 昵称`.
 # Space separated; full openid or a ≥7-char prefix. Member openids are
 # per-group, so an admin id only carries over inside the same group.
-QQBOT_ADMINS="${QQBOT_ADMINS:-9DB40F24307A212B6FE37AA4C0BD1A8E}"
+# Space separated openids (>=7-char prefix accepted) allowed to bind nicknames
+# and read history. Deliberately empty in the committed template: the real
+# admin list belongs to etc/config.prod.sh, not to code.
+QQBOT_ADMINS="${QQBOT_ADMINS:-}"
 
 # ---- Bot server ----
 BOT_PORT="${BOT_PORT:-6160}"

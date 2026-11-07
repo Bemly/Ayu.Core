@@ -24,6 +24,7 @@ auth_query_param() {
 auth_misconfigured() {
 	[ -n "${WEBHOOK_SECRET:-}" ] && return 1
 	[ -n "${QQBOT_WEBHOOK_TOKEN:-}" ] && return 1
+	[ -n "${FNOS_WEBHOOK_TOKEN:-}" ] && return 1
 	case "${AYU_ENV:-dev}" in prod|production) return 0 ;; esac
 	return 1
 }

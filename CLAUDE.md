@@ -21,7 +21,8 @@ Ayu.Core/                  # SNS bot framework (this repo)
 │   ├── qq/                #   Milky/Lagrange (LLOneBot)  — local HTTP, numeric QQ ids
 │   ├── qqbot/             #   QQ official OpenAPI v2    — webhook, openid, Ed25519
 │   ├── telegram/          #   Bot API
-│   └── discord/           #   Bot API + webhook
+│   ├── discord/           #   Bot API + webhook
+│   └── fnos/              #   inbound only: 飞牛通知 webhook → relay
 ├── plugin/sync/           # cross-platform relay (from_qq / from_tg / from_qqbot / from_dc)
 ├── plugin/maint/          # daily rotation + var/state trim (cron)
 ├── lib/                   # http, dispatch, json helpers, log
@@ -39,6 +40,7 @@ Adapter size (functions in `*.sh`, `git ls-files` count as of `990fe77`):
 | `qqbot` (official v2) | 9 | 125 | webhook in + HTTPS API out |
 | `telegram` | 17 | 175 | Bot API long-poll-free webhook |
 | `discord` | 19 | 143 | Bot API + webhook |
+| `fnos` | 1 | 3 | inbound webhook only (no outbound API) |
 
 ## Submodule
 
@@ -348,6 +350,29 @@ The official API never returns a nickname — only a per-bot `member_openid`. So
 - Message log: `var/state/qqbot-hist/<group_openid>`, `<msg_id>\t<openid>\t<text>`, trimmed to `QQBOT_HIST_KEEP` (50). Only group messages are logged; `历史` prints the newest `QQBOT_HIST_SHOW` (5).
 - Admin commands are consumed before `dispatch`/sync, so they are never relayed to TG/DC.
 - `qqbot_render_content` also strips the markdown payload: `<@openid>` → `@<nick>` or `@qq#<first7>`, `<faceType=…,ext="<base64 json>">` → its `text` (e.g. `[聪明]`).
+
+### fnOS (飞牛) Notification Channel (2026-11-07)
+
+fnOS has no reusable outbound API, but its notification settings accept a "custom bot" webhook (钉钉 / 企业微信 / 飞书 flavours). `adapter/fnos/webhook.sh:fnos_webhook()` turns those alerts into Ayu messages:
+
+```
+router.sh → adapter/fnos/webhook.sh:fnos_webhook() → _fnos_text() → _fnos_relay()
+```
+
+| Step | Detail |
+|------|--------|
+| URL | `http://<nas>:6160/cgi-bin/router.sh/fnos?token=<FNOS_WEBHOOK_TOKEN>` |
+| Auth | `FNOS_WEBHOOK_TOKEN` (32 hex, URL-safe) is scoped to the `fnos` path only — it can never unlock qq/telegram/qqbot/discord |
+| Parse | dingtalk/wecom `text.content`, feishu `content.text`, generic `title`/`text`/`content`/`msg`; unparsed bodies fall back to the first 500 bytes |
+| Relay | `FNOS_NOTIFY_TO`, space separated `<platform>:<target>`: `qqbot:private/<openid>`, `qqbot:group/<openid>`, `telegram:<chat_id>` |
+| Reply | always `{"errcode":0,"errmsg":"ok","code":0,"msg":"success"}` — fnOS retries forever on a non-zero `errcode`, and a relay failure cannot be fixed by a retry (the failure is logged instead) |
+
+Gotchas:
+
+- `_fn*` prefixes everywhere (`hush` has no `local`); the module is sourced from `router.sh`, so it must not clobber `_body`/`_raw`.
+- Registered in **both** `router.sh` case blocks (platform detection + dispatch), otherwise `/fnos` is detected but unhandled.
+- Adding the channel to `auth_misconfigured()` keeps the prod fail-open guard honest: a prod box with only `FNOS_WEBHOOK_TOKEN` set is configured, not broken.
+- Tests: `test/test_fnos.sh` (10) — parse shapes, relay wiring, empty body, relay failure still answers success.
 
 **Discord multipart format** (different from TG):
 ```

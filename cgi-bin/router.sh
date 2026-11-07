@@ -54,10 +54,12 @@ case "$_path" in
 	*/qq|*/qq/*) _platform="qq" ;;
 	*/telegram|*/telegram/*) _platform="telegram" ;;
 	*/discord|*/discord/*) _platform="discord" ;;
+	*/fnos|*/fnos/*) _platform="fnos" ;;
 	*platform=qqbot*) _platform="qqbot" ;;
 	*platform=qq*) _platform="qq" ;;
 	*platform=telegram*) _platform="telegram" ;;
 	*platform=discord*) _platform="discord" ;;
+	*platform=fnos*) _platform="fnos" ;;
 	*) _platform="qq" ;;  # default
 esac
 
@@ -82,6 +84,12 @@ _auth_ok=0
 auth_check "${QUERY_STRING:-}" "${WEBHOOK_SECRET:-}" && _auth_ok=1
 if [ "$_auth_ok" -eq 0 ] && [ "$_platform" = "qqbot" ] && [ -n "${QQBOT_WEBHOOK_TOKEN:-}" ]; then
 	auth_check "${QUERY_STRING:-}" "$QQBOT_WEBHOOK_TOKEN" && _auth_ok=1
+fi
+# FNOS_WEBHOOK_TOKEN follows the same rule: a separate, URL-safe secret scoped
+# to the fnos endpoint only. The fnOS notification URL is pasted into a web UI
+# form, so it must not be able to unlock any other platform path.
+if [ "$_auth_ok" -eq 0 ] && [ "$_platform" = "fnos" ] && [ -n "${FNOS_WEBHOOK_TOKEN:-}" ]; then
+	auth_check "${QUERY_STRING:-}" "$FNOS_WEBHOOK_TOKEN" && _auth_ok=1
 fi
 if [ "$_auth_ok" -eq 0 ]; then
 	# NOTE: never echo the query string back or into the log (it carries the token)
@@ -162,6 +170,13 @@ case "$_platform" in
 			_err_body "$_err"
 			exit 0
 		}
+		;;
+	fnos)
+		. "$_HB/adapter/fnos/webhook.sh"
+		fnos_webhook "$_body" 2>/dev/null
+		printf 'Content-Type: application/json; charset=utf-8\r\n\r\n'
+		printf '{"errcode":0,"errmsg":"ok","code":0,"msg":"success"}'
+		exit 0
 		;;
 	qqbot)
 		. "$_HB/adapter/qqbot/webhook.sh"
