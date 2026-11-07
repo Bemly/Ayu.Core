@@ -44,12 +44,34 @@ _fnos_text() {
 			;;
 		*) printf '%s' "$_fn_o"; return 0 ;;
 	esac
+	# fnOS native shape: {"title":"...","body":"..."}. fnOS itself posts this
+	# (the dingtalk/wecom/feishu bridges post the shapes above), and `body`
+	# carries the real alert text.
+	_fn_o="$(json_get "$1" body 2>/dev/null)" || _fn_o=""
+	case "$_fn_o" in
+		''|NOTFOUND|null) ;;
+		*) printf '%s' "$_fn_o"; return 0 ;;
+	esac
 	_fn_v="$(json_get "$1" msg 2>/dev/null)" || _fn_v=""
 	case "$_fn_v" in
 		''|NOTFOUND|null) ;;
 		*) printf '%s' "$_fn_v"; return 0 ;;
 	esac
 	printf ''
+}
+
+# _fnos_fallback <raw> — plain-text best effort when no known field matched.
+# Strips JSON punctuation: the QQ Bot API answers 50015001 ("系统繁忙") when
+# the content opens with `{"`, so the raw body must never be forwarded as is.
+_fnos_fallback() {
+	printf '%s' "$1" | tr -d '{}"' | cut -c1-500
+}
+
+# _fnos_unescape <text> — json_get returns the raw JSON slice, so `\n` arrives
+# as two characters. Relay the real line breaks; otherwise the QQ message shows
+# a literal "\n" in the middle of every alert.
+_fnos_unescape() {
+	printf '%s' "$1" | awk '{ gsub(/\\n/, "\n"); gsub(/\\r/, ""); gsub(/\\t/, "\t"); printf "%s", $0 }'
 }
 
 # _fnos_relay <text> — best effort; one log line per configured target
@@ -63,13 +85,20 @@ _fnos_relay() {
 		qqbot)
 			. "$_HB/adapter/qqbot/core.sh"
 			. "$_HB/adapter/qqbot/message.sh"
+			# qqbot_message_send_* runs _qqbot_api inside $(...), so the caller's
+			# _ERROR stays empty on failure. Point QQBOT_ERR_FILE at a scratch
+			# file to recover the real reason ("FAIL: " alone is undebuggable).
+			_fn_ef="${QQBOT_ERR_FILE:-}"
+			_fn_eftmp="/tmp/fnos-relay.$$"
+			: >"$_fn_eftmp" 2>/dev/null
+			QQBOT_ERR_FILE="$_fn_eftmp"
 			case "$_fn_dst" in
 			private/*)
 				_fn_id="${_fn_dst#private/}"
 				if qqbot_message_send_c2c "$_fn_id" "$_fn_txt" >/dev/null 2>&1; then
 					log_info "fnos→qqbot private $_fn_id OK"
 				else
-					log_err "fnos→qqbot private $_fn_id FAIL: $_ERROR"
+					log_err "fnos→qqbot private $_fn_id FAIL: $(tail -n 1 "$_fn_eftmp" 2>/dev/null)"
 				fi
 				;;
 			group/*)
@@ -77,13 +106,15 @@ _fnos_relay() {
 				if qqbot_message_send_group "$_fn_id" "$_fn_txt" >/dev/null 2>&1; then
 					log_info "fnos→qqbot group $_fn_id OK"
 				else
-					log_err "fnos→qqbot group $_fn_id FAIL: $_ERROR"
+					log_err "fnos→qqbot group $_fn_id FAIL: $(tail -n 1 "$_fn_eftmp" 2>/dev/null)"
 				fi
 				;;
 			*)
 				log_warn "fnos: bad qqbot target '$_fn_dst' (want private/<openid> or group/<openid>)"
 				;;
 			esac
+			rm -f "$_fn_eftmp" 2>/dev/null
+			if [ -n "$_fn_ef" ]; then QQBOT_ERR_FILE="$_fn_ef"; else unset QQBOT_ERR_FILE; fi
 			;;
 		telegram)
 			[ -n "${_TG_SOURCED:-}" ] || . "$_HB/adapter/telegram/core.sh"
@@ -112,7 +143,11 @@ fnos_webhook() {
 			;;
 	esac
 	_fn_txt="$(_fnos_text "$_fn_raw")"
-	[ -n "$_fn_txt" ] || _fn_txt="$(printf '%s' "$_fn_raw" | cut -c1-500)"
+	# Last resort: no known text field in the body — fall back to the raw JSON
+	# with its punctuation stripped (see _fnos_fallback).
+	[ -n "$_fn_txt" ] || _fn_txt="$(_fnos_fallback "$_fn_raw")"
+	# fnOS sends its body as JSON, so line breaks arrive escaped as `\n`.
+	_fn_txt="$(_fnos_unescape "$_fn_txt")"
 	# Keep one line per alert: fnOS bodies embed newlines in the content.
 	_fn_one="$(printf '%s' "$_fn_txt" | awk 1 ORS=' ')"
 	log_info "fnos: notify ← $(printf '%s' "$_fn_one" | cut -c1-300)"

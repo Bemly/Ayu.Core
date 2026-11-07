@@ -35,6 +35,27 @@ test_fnos_parse_unknown_shape_is_empty() {
 	assert_eq "$(_fnos_text '{"foo":"bar"}')" "" "fnos: unknown shape yields empty text"
 }
 
+# fnOS posts its own {"title","body"} shape (no bridge involved); `body` carries
+# the alert. Missing it made the whole JSON go out as the message body, which the
+# QQ Bot API rejects with 50015001.
+test_fnos_parse_native_body() {
+	assert_eq "$(_fnos_text '{"title":"qq-测试推送","body":"设备名称：MEminiFnOS 告警详情：测试消息"}')" \
+		"设备名称：MEminiFnOS 告警详情：测试消息" "fnos: native title/body shape"
+}
+
+# Fallback text must not start with `{"`: QQ Bot answers 50015001 for it.
+test_fnos_fallback_strips_json_punctuation() {
+	assert_eq "$(_fnos_fallback '{"foo":"bar"}')" "foo:bar" "fnos: fallback drops JSON punctuation"
+	assert_not_contains "$(_fnos_fallback '{"foo":"bar"}')" "{" "fnos: fallback has no braces"
+}
+
+# fnOS embeds line breaks as JSON escapes; relaying them verbatim put a literal
+# "\n" inside every alert.
+test_fnos_unescape_newlines() {
+	assert_eq "$(_fnos_unescape '第一行\n第二行')" "第一行
+第二行" "fnos: escaped newlines become real ones"
+}
+
 # ---- relay ----------------------------------------------------------------
 
 test_fnos_relay_qqbot_private() {
@@ -78,6 +99,9 @@ test_fnos_parse_dingtalk
 test_fnos_parse_feishu
 test_fnos_parse_flat_text
 test_fnos_parse_unknown_shape_is_empty
+test_fnos_parse_native_body
+test_fnos_fallback_strips_json_punctuation
+test_fnos_unescape_newlines
 
 test_fnos_relay_qqbot_private
 test_fnos_relay_unknown_target_is_skipped
