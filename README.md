@@ -31,7 +31,7 @@ Function counts are `grep -cE '^[a-z_]+\(\)'` over each adapter directory. Full 
 | Event ACK | `op=0` → `{"op":12,"d":{}}` (platform retries unless ACKed) |
 | ID space | `openid` / `group_openid` only — never QQ numbers |
 | Code | 9 files / 125 functions under `adapter/qqbot/` |
-| Tests | 130 of the 400 tests exercise this adapter |
+| Tests | 138 of the 422 tests exercise this adapter |
 
 `QQBOT_VERIFY_SIG` selects the verification mode: `auto` (on when the secret and the Ed25519 helper are present),
 `1` (fail closed — unsigned callbacks are rejected), `0` (off, not recommended).
@@ -63,7 +63,7 @@ Ayu.Core/
 ├── etc/                    # config, rules, crontab, sync.conf, README
 ├── hush-json/              # submodule — JSON in POSIX sh
 ├── hush-ed25519/           # submodule — Ed25519 sign/verify in shell + busybox awk
-└── test/                   # 400 tests, 0 failures (mock_http, no API keys)
+└── test/                   # 422 tests, 0 failures (mock_http, no API keys)
 ```
 
 ## Quick Start
@@ -260,7 +260,7 @@ item is downloaded once and re-uploaded through the existing multipart helpers. 
 attachment is logged and the text message still goes out.
 
 Senders are rendered as `🅠 nick(qq#ABC1234)` — the official API never returns a nickname, only a per-bot
-`member_openid`, so group admins bind names with `@bot @someone 宝宝` (see below).
+`member_openid`, so members set their own name with `@bot 昵称` and admins bind others with `@bot @someone 宝宝` (see below).
 
 `etc/sync.conf` targets and sources:
 
@@ -276,16 +276,28 @@ discord/ch123456=qqbot/channel/<channel_id>      # DC → qqbot channel
 
 The official API never returns a display name, so relays show a short id until an admin binds one:
 
+| Command | Effect | Who |
+|---|---|---|
+| `@bot @someone 昵称` | bind a nickname to the mentioned member | `QQBOT_ADMINS` only |
+| `@bot 291A162 昵称` | bind by the 7-char prefix seen in relays | `QQBOT_ADMINS` only |
+| `@bot 昵称` | rename **yourself** | everyone |
+| `@bot 历史` | last 5 messages with id + body | `QQBOT_ADMINS` only |
+
 ```
-@bot @someone 宝宝        # bind by mention
-@bot 291A162 宝宝         # bind by the 7-char prefix seen in relays
-@bot 历史                 # last 5 messages, id + body
+@bot @someone 宝宝        # admin: bind somebody else by mention
+@bot 291A162 宝宝         # admin: bind somebody else by the 7-char prefix
+@bot 蓝莓小果冻           # anyone: rename yourself
+@bot 历史                 # admin: last 5 messages, id + body
 ```
 
-Bindings live in `var/state/qqbot-nick/<group_openid>` (`<openid>\t<nick>`, latest wins, unlimited rewrites) and are
-read by both the adapter and the relay. Message history lives in `var/state/qqbot-hist/<group_openid>`
-(`<msg_id>\t<openid>\t<text>`), trimmed to `QQBOT_HIST_KEEP` (50); `历史` prints the newest `QQBOT_HIST_SHOW` (5).
-Only ids listed in `QQBOT_ADMINS` may bind; admin commands are consumed before dispatch, so they never reach sync.
+- Bindings live in `var/state/qqbot-nick/<group_openid>` (`<openid>\t<nick>`, latest wins, unlimited rewrites) and are
+  read by both the adapter and the relay.
+- The two-target forms and `历史` require an id in `QQBOT_ADMINS`; others get `只有管理员能绑定昵称` / `只有管理员能查看历史`.
+- `@bot 昵称` writes the sender's own openid, so it can never touch another member; it only fires for a single word
+  (no space, not a lone hex id, ≤48 bytes), otherwise the text is relayed as ordinary chatter.
+- Message history lives in `var/state/qqbot-hist/<group_openid>` (`<msg_id>\t<openid>\t<text>`), trimmed to
+  `QQBOT_HIST_KEEP` (50); `历史` prints the newest `QQBOT_HIST_SHOW` (5).
+- Commands are consumed before dispatch, so they never reach sync.
 
 ## Webhook Auth
 
@@ -386,12 +398,12 @@ docker run --rm -v $(pwd):/ayu busybox:musl hush -c "
 "
 ```
 
-**400 tests, 0 failures.**
+**422 tests, 0 failures.**
 
 | Suite | Files | Tests |
 |-------|-------|-------|
 | QQ (Milky) | `test_qq_message`, `test_qq_system`, `test_qq_webhook` | 29 |
-| QQ Bot (official) | `test_qqbot`, `test_qqbot_admin`, `test_qqbot_commands` | 98 |
+| QQ Bot (official) | `test_qqbot`, `test_qqbot_admin`, `test_qqbot_commands` | 106 |
 | QQ Bot sync | `test_sync_qqbot` | 32 |
 | Telegram | `test_telegram` | 16 |
 | Discord | `test_discord` | 32 |

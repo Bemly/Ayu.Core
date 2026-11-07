@@ -147,9 +147,10 @@ qqbot_resolve_openid() {
 
 qqbot_admin_usage() {
 	printf '用法：
-@bot @某人 昵称   绑定
-@bot 291A162 昵称  按7位id绑定
-@bot 历史          最近5条'
+@bot @某人 昵称   绑定（管理员）
+@bot 291A162 昵称  按7位id绑定（管理员）
+@bot 昵称          改自己的昵称（所有人）
+@bot 历史          最近5条（管理员）'
 }
 
 qqbot_admin_history() {
@@ -218,6 +219,10 @@ qqbot_admin_handle() {
 	fi
 	[ -n "$_qam_rest" ] || return 1
 
+	# mentions in the message: the bot itself, plus possibly a bind target
+	_qam_n="$(printf '%s\n' "$_qam_m" | grep -c . 2>/dev/null)"
+	[ -n "$_qam_n" ] || _qam_n=0
+
 	case "$_qam_rest" in
 		历史|/history|history)
 			# history leaks message bodies plus every member openid; it used to
@@ -232,9 +237,45 @@ qqbot_admin_handle() {
 			;;
 	esac
 
+	# "@bot 昵称" — one bare word, no other mention — renames the sender
+	# themselves. Every member may do this; setting somebody else's name
+	# stays admin-only and is handled below.
+	if [ "$_qam_n" -le 1 ]; then
+		case "$_qam_rest" in
+			*' '*) : ;;
+			*)
+				# a lone hex word is a half-typed bind ("@bot 291A162"), not a name
+				case "$_qam_rest" in
+					*[!0-9A-Fa-f]*)
+						# long text stays an ordinary message so @-chatter is relayed
+						if [ "${#_qam_rest}" -le 48 ]; then
+							_qam_old="$(qqbot_nick_get "$_qam_gid" "$_qam_uid")"
+							if ! qqbot_nick_set "$_qam_gid" "$_qam_uid" "$_qam_rest"; then
+								qqbot_reply_event "$_qam_d" "改名失败：无法写入映射" "$_qam_mode"
+								return 1
+							fi
+							_qam_short=$(printf '%s' "$_qam_uid" | cut -c1-7)
+							if [ -z "$_qam_old" ]; then
+								qqbot_reply_event "$_qam_d" "已设置你的昵称：$_qam_rest（qq#$_qam_short）" "$_qam_mode"
+							elif [ "$_qam_old" = "$_qam_rest" ]; then
+								qqbot_reply_event "$_qam_d" "昵称未变化：$_qam_rest（qq#$_qam_short）" "$_qam_mode"
+							else
+								qqbot_reply_event "$_qam_d" "已修改你的昵称：$_qam_old → $_qam_rest（qq#$_qam_short）" "$_qam_mode"
+							fi
+							log_info "qqbot: $_qam_uid self-renamed qq#$_qam_short = $_qam_rest"
+							return 0
+						fi
+						;;
+					*)
+						qqbot_reply_event "$_qam_d" "$(qqbot_admin_usage)" "$_qam_mode"
+						return 0
+						;;
+				esac
+				;;
+		esac
+	fi
+
 	# target: second mention, else the first word (7-char id form)
-	_qam_n="$(printf '%s\n' "$_qam_m" | grep -c . 2>/dev/null)"
-	[ -n "$_qam_n" ] || _qam_n=0
 	if [ "$_qam_n" -ge 2 ]; then
 		_qam_tgt="$(printf '%s\n' "$_qam_m" | sed -n 2p)"
 		_qam_nick="$_qam_rest"

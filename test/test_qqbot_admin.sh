@@ -8,6 +8,7 @@ _QA_STATE="$(mktemp -d)"
 _QA_OLD_STATE="$_STATE_DIR"
 _STATE_DIR="$_QA_STATE"
 _HB_TMP_ADMIN="${QQBOT_ADMINS:-}"
+_HB_TMP_BOT_ID="${QQBOT_BOT_OPENID:-}"
 
 . ./plugin/sync/common.sh
 
@@ -22,12 +23,15 @@ _qa_setup() {
 	QQBOT_NICK_DIR="$_QA_STATE/qqbot-nick"
 	QQBOT_HIST_DIR="$_QA_STATE/qqbot-hist"
 	QQBOT_ADMINS="$_QA_ADMIN"
+	# a real bot id in etc/config.sh would reject the fake mentions below
+	QQBOT_BOT_OPENID=""
 	qqbot_reply_event() { _QA_REPLY="$2"; }
 }
 _qa_unsetup() {
 	QQBOT_NICK_DIR="${_QA_STATE}/qqbot-nick"
 	QQBOT_HIST_DIR="${_QA_STATE}/qqbot-hist"
 	QQBOT_ADMINS="$_HB_TMP_ADMIN"
+	QQBOT_BOT_OPENID="$_HB_TMP_BOT_ID"
 }
 
 test_qqbot_admin_ignores_plain_message() {
@@ -188,7 +192,35 @@ test_qqbot_admin_full_stream_requires_bot_mention() {
 	qqbot_admin_handle GROUP_MESSAGE_CREATE \
 		'{"content":"<@0000000000000000000000000000000B> 历史"}' G1 "$_QA_ADMIN"
 	assert_ok "bot mention is still a command"
-	QQBOT_BOT_OPENID=""
+	_qa_unsetup
+}
+
+test_qqbot_admin_self_rename_any_member() {
+	_qa_setup
+	# "@bot 昵称" renames the sender; no admin needed
+	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
+		"{\"content\":\"<@!0000000000000000000000000000000B> 蓝莓小果冻\"}" G1 "$_QA_P"
+	assert_ok "self rename consumed for a non-admin"
+	assert_eq "$(qqbot_nick_get G1 "$_QA_P")" "蓝莓小果冻" "self rename writes the sender"
+	assert_contains "$_QA_REPLY" "已设置你的昵称" "self rename confirmed"
+	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
+		"{\"content\":\"<@!0000000000000000000000000000000B> 蓝莓果冻\"}" G1 "$_QA_P"
+	assert_contains "$_QA_REPLY" "已修改你的昵称" "second self rename reports the change"
+	assert_eq "$(wc -l < "$_QA_STATE/qqbot-nick/G1")" "1" "one line per member"
+	_qa_unsetup
+}
+
+test_qqbot_admin_self_rename_edge_cases() {
+	_qa_setup
+	# two words → ordinary chat, must still reach the relay
+	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
+		"{\"content\":\"<@!0000000000000000000000000000000B> 今天 天气不错\"}" G1 "$_QA_P"
+	assert_fail "multi-word text is not a nickname"
+	# a lone hex token is an unfinished bind → usage, not a rename
+	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
+		"{\"content\":\"<@!0000000000000000000000000000000B> 291A162\"}" G1 "$_QA_P"
+	assert_contains "$_QA_REPLY" "改自己的昵称" "lone id answers with usage"
+	assert_eq "$(cat "$_QA_STATE/qqbot-nick/G1" 2>/dev/null)" "" "nothing renamed"
 	_qa_unsetup
 }
 
@@ -205,6 +237,8 @@ test_qqbot_admin_unknown_prefix
 test_qqbot_admin_sender_and_render_use_nick
 test_qqbot_admin_history_lists_ids
 test_qqbot_admin_history_keeps_limit
+test_qqbot_admin_self_rename_any_member
+test_qqbot_admin_self_rename_edge_cases
 
 _STATE_DIR="$_QA_OLD_STATE"
 test_purge "$_QA_STATE"

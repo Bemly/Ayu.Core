@@ -301,7 +301,7 @@ Conventions and gotchas:
 - Webhook events carry media **only** as `attachments[]` (url + content_type): `plugin/sync/from_qqbot.sh` downloads once and re-uploads via `_sync_tg_multipart` / `_sync_dc_multipart`; voice prefers `voice_wav_url` (SILK is unplayable).
 - Full-stream `GROUP_MESSAGE_CREATE` (whole-group messages, not just @-mentions) is handled in `admin.sh`; when `QQBOT_BOT_OPENID` is set, commands must @ the bot.
 - Auth is a separate token (`QQBOT_WEBHOOK_TOKEN`, URL-safe alphabet) with Ed25519 verification on every callback — see `SECURITY.md`.
-- Tests: `test/test_qqbot.sh` (45), `test/test_qqbot_admin.sh` (40), `test/test_qqbot_commands.sh` (13), `test/test_sync_qqbot.sh` (32).
+- Tests: `test/test_qqbot.sh` (45), `test/test_qqbot_admin.sh` (48), `test/test_qqbot_commands.sh` (13), `test/test_sync_qqbot.sh` (32).
 
 ### Discord Sync (2026-05-05)
 
@@ -316,13 +316,15 @@ Conventions and gotchas:
 The official API never returns a nickname — only a per-bot `member_openid`. So every relayed line shows a short id, and a group admin can bind a name to it (`adapter/qqbot/admin.sh`):
 
 ```
-@bot @someone 宝宝        # bind by mention
-@bot 291A162 宝宝         # bind by the 7-char prefix seen in relays
-@bot 历史                 # last 5 messages with id + body
+@bot @someone 宝宝        # admin: bind somebody else by mention
+@bot 291A162 宝宝         # admin: bind somebody else by the 7-char prefix
+@bot 蓝莓小果冻           # anyone: rename yourself
+@bot 历史                 # admin: last 5 messages with id + body
 ```
 
 - Bindings: `var/state/qqbot-nick/<group_openid>`, one `<openid>\t<nick>` per line; latest wins, unlimited rewrites. Read by both the adapter (`qqbot_nick_get`) and the relay (`_sync_qqbot_nick` in `plugin/sync/common.sh`), so a bound name appears in `qqbot` senders as `宝宝(qq#ABC1234)`.
-- Permissions: only ids in `QQBOT_ADMINS` (`etc/config.sh`, space separated, full openid or ≥7-char prefix) may bind; others get `只有管理员能绑定昵称`. Member openids are per-group, so an admin id is group-scoped.
+- Permissions: the two-target forms (mention / 7-char prefix) and `历史` are admin-only — only ids in `QQBOT_ADMINS` (`etc/config.sh`, space separated, full openid or ≥7-char prefix); others get `只有管理员能绑定昵称` / `只有管理员能查看历史`. `@bot 昵称` renames the **sender** and is open to every member (writes the event's own openid, so it cannot touch anybody else). Member openids are per-group, so an admin id is group-scoped.
+- Self-rename only fires for a single word (no space, not a lone hex id, ≤48 bytes); anything else falls through to the relay as ordinary chatter. Replies: `已设置你的昵称` / `已修改你的昵称` / `昵称未变化`.
 - Message log: `var/state/qqbot-hist/<group_openid>`, `<msg_id>\t<openid>\t<text>`, trimmed to `QQBOT_HIST_KEEP` (50). Only group messages are logged; `历史` prints the newest `QQBOT_HIST_SHOW` (5).
 - Admin commands are consumed before `dispatch`/sync, so they are never relayed to TG/DC.
 - `qqbot_render_content` also strips the markdown payload: `<@openid>` → `@<nick>` or `@qq#<first7>`, `<faceType=…,ext="<base64 json>">` → its `text` (e.g. `[聪明]`).

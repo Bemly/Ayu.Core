@@ -31,7 +31,7 @@
 | 事件 ACK | `op=0` → `{"op":12,"d":{}}`（不 ACK 平台会重试） |
 | ID 体系 | 只有 `openid` / `group_openid`，没有任何 QQ 号 |
 | 代码 | `adapter/qqbot/` 9 文件 / 125 函数 |
-| 测试 | 400 条里有 130 条覆盖该适配器 |
+| 测试 | 422 条里有 138 条覆盖该适配器 |
 
 `QQBOT_VERIFY_SIG` 控制验签模式：`auto`（有密钥和 Ed25519 实现时自动开启）、`1`（失败即拒，拒收未签名回调）、`0`（关闭，不推荐）。
 
@@ -62,7 +62,7 @@ Ayu.Core/
 ├── etc/                    # config, rules, crontab, sync.conf, README
 ├── hush-json/              # submodule — POSIX sh 实现的 JSON
 ├── hush-ed25519/           # submodule — shell + busybox awk 实现的 Ed25519 签名/验签
-└── test/                   # 400 tests, 0 failures (mock_http, 无需 API key)
+└── test/                   # 422 tests, 0 failures (mock_http, 无需 API key)
 ```
 
 ## 快速开始
@@ -271,17 +271,27 @@ discord/ch123456=qqbot/channel/<channel_id>      # DC → qqbot 频道
 
 ### QQ Bot 昵称绑定与历史
 
-官方 API 不返回显示名，转发只能先显示短 id，管理员绑定后才换成昵称：
+官方 API 不返回显示名，转发只能先显示短 id，绑定或自设昵称后才换成昵称：
+
+| 命令 | 作用 | 谁能用 |
+|---|---|---|
+| `@bot @某人 昵称` | 给被 @ 的人绑定昵称 | 仅 `QQBOT_ADMINS` |
+| `@bot 291A162 昵称` | 按转发里看到的 7 位前缀给他人绑定 | 仅 `QQBOT_ADMINS` |
+| `@bot 昵称` | 修改自己的昵称 | 所有人 |
+| `@bot 历史` | 最近 5 条，id + 正文 | 仅 `QQBOT_ADMINS` |
 
 ```
-@bot @某人 宝宝          # 按 @ 绑定
-@bot 291A162 宝宝        # 按转发里看到的 7 位前缀绑定
-@bot 历史                # 最近 5 条，id + 正文
+@bot @某人 宝宝          # 管理员：按 @ 给他人绑定
+@bot 291A162 宝宝        # 管理员：按 7 位前缀给他人绑定
+@bot 蓝莓小果冻          # 任何人：改自己的昵称
+@bot 历史                # 管理员：最近 5 条，id + 正文
 ```
 
-绑定结果存在 `var/state/qqbot-nick/<group_openid>`（`<openid>\t<昵称>`，后写覆盖、可无限次改），适配器和转发都读它。
-历史存在 `var/state/qqbot-hist/<group_openid>`（`<msg_id>\t<openid>\t<正文>`），按 `QQBOT_HIST_KEEP`（50）裁剪；
-`历史` 只输出最新 `QQBOT_HIST_SHOW`（5）条。只有 `QQBOT_ADMINS` 里的 id 能绑定；管理命令在分发前被消费，不会进同步。
+- 支持他人绑定（前两种）与 `历史` 的判定是 `QQBOT_ADMINS`（`etc/config.sh`，空格分隔，完整 openid 或 ≥7 位前缀）；非管理员收到 `只有管理员能绑定昵称` / `只有管理员能查看历史`。
+- `@bot 昵称` 只认单个词（不含空格、非纯十六进制 id、≤48 字节），写完立即生效并回执 `已设置你的昵称` / `已修改你的昵称`；带空格的长句仍按普通消息转发，不会被误当昵称。
+- 绑定结果存在 `var/state/qqbot-nick/<group_openid>`（`<openid>\t<昵称>`，后写覆盖、可无限次改），适配器和转发都读它。
+- 历史存在 `var/state/qqbot-hist/<group_openid>`（`<msg_id>\t<openid>\t<正文>`），按 `QQBOT_HIST_KEEP`（50）裁剪，`历史` 只输出最新 `QQBOT_HIST_SHOW`（5）条。
+- 命令在分发前被消费，不会进同步。
 
 ## Webhook 鉴权
 
@@ -382,12 +392,12 @@ docker run --rm -v $(pwd):/ayu busybox:musl hush -c "
 "
 ```
 
-**400 tests, 0 failures。**
+**422 tests, 0 failures。**
 
 | 套件 | 文件 | 用例 |
 | --- | --- | --- |
 | QQ (Milky) | `test_qq_message`、`test_qq_system`、`test_qq_webhook` | 29 |
-| QQ Bot（官方） | `test_qqbot`、`test_qqbot_admin`、`test_qqbot_commands` | 98 |
+| QQ Bot（官方） | `test_qqbot`、`test_qqbot_admin`、`test_qqbot_commands` | 106 |
 | QQ Bot 同步 | `test_sync_qqbot` | 32 |
 | Telegram | `test_telegram` | 16 |
 | Discord | `test_discord` | 32 |
@@ -397,8 +407,8 @@ docker run --rm -v $(pwd):/ayu busybox:musl hush -c "
 | 分发与 API | `test_dispatch`、`test_api` | 11 |
 | URL / 日志 / 维护 | `test_url`、`test_log`、`test_maint` | 45 |
 
-qqbot 的 130 条拆开是：`test_qqbot.sh` 45（webhook 入口、op=13、op=0 ACK、401/403、去重）、
-`test_qqbot_admin.sh` 40（绑定/改名/未变化/历史/全量流）、`test_qqbot_commands.sh` 13（内置命令）、
+qqbot 的 138 条拆开是：`test_qqbot.sh` 45（webhook 入口、op=13、op=0 ACK、401/403、去重）、
+`test_qqbot_admin.sh` 48（绑定/改名/自改昵称/未变化/历史/全量流）、`test_qqbot_commands.sh` 13（内置命令）、
 `test_sync_qqbot.sh` 32（qqbot↔TG/DC 转发、附件、撤回）。
 
 测试要求 submodule 已初始化（`git submodule update --init`），否则 `test/run.sh` 会在
