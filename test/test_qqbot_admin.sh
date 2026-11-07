@@ -145,10 +145,28 @@ test_qqbot_admin_history_keeps_limit() {
 }
 
 
+# QQ HTML-escapes the angle brackets of a mention: content arrives as
+# `\u003c@openid\u003e` (literal backslash-u, one JSON layer down). Commands must
+# still be recognised, otherwise they are relayed and never answered.
+test_qqbot_admin_escaped_mentions() {
+	_qa_setup
+	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
+		"{\"content\":\"\\\\u003c@0000000000000000000000000000000B\\\\u003e \\\\u003c@$_QA_P\\\\u003e 宝宝\"}" G1 "$_QA_ADMIN"
+	assert_ok "escaped mention bind consumed"
+	assert_eq "$(qqbot_nick_get G1 "$_QA_P")" "宝宝" "escaped mention bound"
+	assert_contains "$_QA_REPLY" "已绑定" "confirmation sent for escaped mention"
+	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
+		'{"content":"\\u003c@0000000000000000000000000000000B\\u003e 历史"}' G1 "$_QA_ADMIN"
+	assert_ok "escaped history consumed"
+	_qa_unsetup
+}
+
+test_qqbot_admin_escaped_mentions
 test_qqbot_admin_ignores_plain_message
 test_qqbot_admin_rejects_non_admin
 test_qqbot_admin_binds_by_mention
 test_qqbot_admin_rebind_rewrites
+test_qqbot_admin_rebind_same_name
 test_qqbot_admin_binds_by_prefix
 test_qqbot_admin_unknown_prefix
 test_qqbot_admin_sender_and_render_use_nick

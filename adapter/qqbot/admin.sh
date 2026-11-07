@@ -173,6 +173,8 @@ qqbot_admin_handle() {
 	esac
 	_qam_c="$(json_get "$_qam_d" content 2>/dev/null)" || _qam_c=""
 	case "$_qam_c" in ''|NOTFOUND|null) return 1 ;; esac
+	# mentions arrive HTML-escaped (`\u003c@openid\u003e`); decode before parsing
+	_qam_c="$(utf8_decode "$_qam_c")"
 
 	# mentions in order: the bot comes first (the message is an @-message),
 	# any further one is the bind target

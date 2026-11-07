@@ -238,9 +238,16 @@ qqbot_render_content() {
 }
 
 # qqbot_message_text <d> [group_openid] — content plus the attachment text view
+#
+# QQ escapes the angle brackets of a mention when the message carries one, so
+# content arrives as `\u003c@openid\u003e` rather than `<@openid>`. Mentions and
+# faces are parsed by literal tag shape, so the escapes must be decoded first —
+# otherwise an @-command looks like plain text (and gets relayed instead of
+# being answered). lib/url.sh's utf8_decode does the \uXXXX → UTF-8 work.
 qqbot_message_text() {
 	_qmt_c="$(json_get "$1" content 2>/dev/null)" || _qmt_c=""
 	case "$_qmt_c" in NOTFOUND|null) _qmt_c="" ;; esac
+	[ -n "$_qmt_c" ] && _qmt_c="$(utf8_decode "$_qmt_c")"
 	_qmt_c="$(qqbot_render_content "$_qmt_c" "$2")"
 	printf '%s' "$_qmt_c$(qqbot_attachments_text "$1")"
 }
