@@ -124,7 +124,7 @@ QQBOT_API_BASE="https://api.bot.qq.com"
 QQBOT_VERIFY_SIG="auto"          # auto | 1（失败即拒）| 0（关闭）
 QQBOT_WEBHOOK_TOKEN=""           # URL 安全 token；WEBHOOK_SECRET 含 # < ; 时改用它
 QQBOT_BOT_OPENID=""              # bot 自身 openid；全量流下命令必须 @ 它
-QQBOT_ADMINS=""                  # 允许绑定昵称的 openid（空格分隔，支持 ≥7 位前缀）
+QQBOT_ADMINS=""                  # 允许查看历史的 openid（空格分隔，支持 ≥7 位前缀）
 
 BOT_PORT="6160"
 WEBHOOK_SECRET=""                # 设了就要 ?token=xxx，否则 403
@@ -146,7 +146,7 @@ QQ Bot 各键含义：
 | `QQBOT_VERIFY_SIG` | `auto` | `auto` / `1` 失败即拒 / `0` 关闭 |
 | `QQBOT_WEBHOOK_TOKEN` | 空 | `/qqbot` 专用 URL 安全 token，优先于 `WEBHOOK_SECRET` |
 | `QQBOT_BOT_OPENID` | 空 | bot 自身 openid；全量流命令需 @ 它 |
-| `QQBOT_ADMINS` | `etc/config.sh` 内置一个 | 允许绑定昵称的 openid（空格分隔，支持 ≥7 位前缀） |
+| `QQBOT_ADMINS` | `etc/config.sh` 内置一个 | 允许查看历史的 openid（空格分隔，支持 ≥7 位前缀） |
 | `QQBOT_HIST_KEEP` | `50` | 单会话历史保留条数 |
 | `QQBOT_HIST_SHOW` | `5` | `@bot 历史` 返回条数 |
 
@@ -256,8 +256,9 @@ discord/ch123456=telegram/-100111              # DC 频道 → TG（每日批量
 官方回调里的媒体只有 `attachments`（`url` + `content_type`，没有本地路径、没有 segment），所以每条附件只下载一次，
 再走现成的 multipart helper 重传。整体是尽力而为：单条附件失败只记日志，文字照发。
 
-发送者显示为 `🅠 昵称(qq#ABC1234)` —— 官方 API 不返回昵称，只给按 bot 隔离的 `member_openid`，
-需要群管理员用 `@bot @某人 宝宝` 绑定（见下）。
+发送者显示为 `🅠 昵称(qq#ABC1234)`。事件里确实定义了 `author.username`，但平台对多数机器人返回空串，
+稳定拿到的只有按 bot 隔离的 `member_openid`。所以昵称只在平台于事件里给出时才能显示：该值会缓存到
+`var/state/qqbot-nick-auto/<group_openid>`，后续没带昵称的消息继续沿用。现在不支持手动设置昵称（见下）。
 
 `etc/sync.conf` 的源与目标写法：
 
@@ -269,27 +270,18 @@ telegram/-100111=qqbot/private/<user_openid>     # TG → qqbot 单聊
 discord/ch123456=qqbot/channel/<channel_id>      # DC → qqbot 频道
 ```
 
-### QQ Bot 昵称绑定与历史
+### QQ Bot 昵称与历史
 
-官方 API 不返回显示名，转发只能先显示短 id，绑定或自设昵称后才换成昵称：
+官方 API 对多数机器人不返回显示名，转发只能显示短 id（`qq#ABC1234`），除非事件里带了 `author.username`。
 
 | 命令 | 作用 | 谁能用 |
 |---|---|---|
-| `@bot @某人 昵称` | 给被 @ 的人绑定昵称 | 仅 `QQBOT_ADMINS` |
-| `@bot 291A162 昵称` | 按转发里看到的 7 位前缀给他人绑定 | 仅 `QQBOT_ADMINS` |
-| `@bot 昵称` | 修改自己的昵称 | 所有人 |
 | `@bot 历史` | 最近 5 条，id + 正文 | 仅 `QQBOT_ADMINS` |
 
-```
-@bot @某人 宝宝          # 管理员：按 @ 给他人绑定
-@bot 291A162 宝宝        # 管理员：按 7 位前缀给他人绑定
-@bot 蓝莓小果冻          # 任何人：改自己的昵称
-@bot 历史                # 管理员：最近 5 条，id + 正文
-```
-
-- 支持他人绑定（前两种）与 `历史` 的判定是 `QQBOT_ADMINS`（`etc/config.sh`，空格分隔，完整 openid 或 ≥7 位前缀）；非管理员收到 `只有管理员能绑定昵称` / `只有管理员能查看历史`。
-- `@bot 昵称` 只认单个词（不含空格、非纯十六进制 id、≤48 字节），写完立即生效并回执 `已设置你的昵称` / `已修改你的昵称`；带空格的长句仍按普通消息转发，不会被误当昵称。
-- 绑定结果存在 `var/state/qqbot-nick/<group_openid>`（`<openid>\t<昵称>`，后写覆盖、可无限次改），适配器和转发都读它。
+- 平台给出的昵称按群缓存在 `var/state/qqbot-nick-auto/<group_openid>`（`<openid>\t<昵称>`，后写覆盖），后续不带昵称的消息沿用；空 `username` 不会清掉缓存。
+- **不再有绑定**：无法手动设置昵称。原 `@bot @某人 昵称` / `@bot 291A162 昵称` / `@bot 昵称` 三个命令与
+  `var/state/qqbot-nick/<group_openid>` 已全部删除，长得像这类命令的消息现在按普通消息转发。
+- `历史` 需要 `QQBOT_ADMINS`（`etc/config.sh`，空格分隔，完整 openid 或 ≥7 位前缀）里的 id，其他人收到 `只有管理员能查看历史`。
 - 历史存在 `var/state/qqbot-hist/<group_openid>`（`<msg_id>\t<openid>\t<正文>`），按 `QQBOT_HIST_KEEP`（50）裁剪，`历史` 只输出最新 `QQBOT_HIST_SHOW`（5）条。
 - 命令在分发前被消费，不会进同步。
 
@@ -408,7 +400,7 @@ docker run --rm -v $(pwd):/ayu busybox:musl hush -c "
 | URL / 日志 / 维护 | `test_url`、`test_log`、`test_maint` | 45 |
 
 qqbot 的 138 条拆开是：`test_qqbot.sh` 45（webhook 入口、op=13、op=0 ACK、401/403、去重）、
-`test_qqbot_admin.sh` 48（绑定/改名/自改昵称/未变化/历史/全量流）、`test_qqbot_commands.sh` 13（内置命令）、
+`test_qqbot_admin.sh`（历史/平台昵称缓存/全量流）、`test_qqbot_commands.sh` 13（内置命令）、
 `test_sync_qqbot.sh` 32（qqbot↔TG/DC 转发、附件、撤回）。
 
 测试要求 submodule 已初始化（`git submodule update --init`），否则 `test/run.sh` 会在

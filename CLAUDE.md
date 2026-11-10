@@ -323,7 +323,7 @@ Conventions and gotchas:
 - Webhook events carry media **only** as `attachments[]` (url + content_type): `plugin/sync/from_qqbot.sh` downloads once and re-uploads via `_sync_tg_multipart` / `_sync_dc_multipart`; voice prefers `voice_wav_url` (SILK is unplayable).
 - Full-stream `GROUP_MESSAGE_CREATE` (whole-group messages, not just @-mentions) is handled in `admin.sh`; when `QQBOT_BOT_OPENID` is set, commands must @ the bot.
 - Auth is a separate token (`QQBOT_WEBHOOK_TOKEN`, URL-safe alphabet) with Ed25519 verification on every callback — see `SECURITY.md`.
-- Tests: `test/test_qqbot.sh` (45), `test/test_qqbot_admin.sh` (48), `test/test_qqbot_commands.sh` (13), `test/test_sync_qqbot.sh` (36).
+- Tests: `test/test_qqbot.sh` (45), `test/test_qqbot_admin.sh` (11), `test/test_qqbot_commands.sh` (13), `test/test_sync_qqbot.sh` (36).
 
 ### Discord Sync (2026-05-05)
 
@@ -335,21 +335,14 @@ Conventions and gotchas:
 
 ### QQ Bot Sender Names / History (2026-11-07)
 
-The official API never returns a nickname — only a per-bot `member_openid`. So every relayed line shows a short id, and a group admin can bind a name to it (`adapter/qqbot/admin.sh`):
+The official API returns no nickname for most bots — only a per-bot `member_openid`. The `author.username` field is documented and used when present, but it is empty for many bots, so every relayed line otherwise shows `qq#<first7>`.
 
-```
-@bot @someone 宝宝        # admin: bind somebody else by mention
-@bot 291A162 宝宝         # admin: bind somebody else by the 7-char prefix
-@bot 蓝莓小果冻           # anyone: rename yourself
-@bot 历史                 # admin: last 5 messages with id + body
-```
-
-- Bindings: `var/state/qqbot-nick/<group_openid>`, one `<openid>\t<nick>` per line; latest wins, unlimited rewrites. Read by both the adapter (`qqbot_nick_get`) and the relay (`_sync_qqbot_nick` in `plugin/sync/common.sh`), so a bound name appears in `qqbot` senders as `宝宝(qq#ABC1234)`.
-- Permissions: the two-target forms (mention / 7-char prefix) and `历史` are admin-only — only ids in `QQBOT_ADMINS` (`etc/config.sh`, space separated, full openid or ≥7-char prefix); others get `只有管理员能绑定昵称` / `只有管理员能查看历史`. `@bot 昵称` renames the **sender** and is open to every member (writes the event's own openid, so it cannot touch anybody else). Member openids are per-group, so an admin id is group-scoped.
-- Self-rename only fires for a single word (no space, not a lone hex id, ≤48 bytes); anything else falls through to the relay as ordinary chatter. Replies: `已设置你的昵称` / `已修改你的昵称` / `昵称未变化`.
-- Message log: `var/state/qqbot-hist/<group_openid>`, `<msg_id>\t<openid>\t<text>`, trimmed to `QQBOT_HIST_KEEP` (50). Only group messages are logged; `历史` prints the newest `QQBOT_HIST_SHOW` (5).
-- Admin commands are consumed before `dispatch`/sync, so they are never relayed to TG/DC.
-- `qqbot_render_content` also strips the markdown payload: `<@openid>` → `@<nick>` or `@qq#<first7>`, `<faceType=…,ext="<base64 json>">` → its `text` (e.g. `[聪明]`).
+- What the platform does send is cached per group: `var/state/qqbot-nick-auto/<group_openid>`, one `<openid>\t<nick>` line per member (`qqbot_nick_auto_set` / `qqbot_nick_auto_get` in `adapter/qqbot/admin.sh`). The cache is written from inbound events and reused on the mentions/relays that arrive without a name; an empty `username` never clears it. Writers only touch the file when the value changes.
+- There is **no binding table**: names cannot be set by hand. The old `@bot @someone 昵称` / `@bot 291A162 昵称` / `@bot 昵称` commands and `var/state/qqbot-nick/<group_openid>` are gone — do not reintroduce them, and keep `plugin/sync/common.sh` free of any state lookup for qqbot senders.
+- `@bot 历史` (admin only, ids in `QQBOT_ADMINS` from `etc/config.sh`) prints the newest `QQBOT_HIST_SHOW` (5) messages of `var/state/qqbot-hist/<group_openid>`, each as `<index>. <cached name or qq#first7>`, `id=`, body. Others get `只有管理员能查看历史`. The log keeps `QQBOT_HIST_KEEP` (50) lines, `<msg_id>\t<openid>\t<text>`.
+- Both event shapes are accepted: `GROUP_AT_MESSAGE_CREATE` (passive reply, echoes the event id) and `GROUP_MESSAGE_CREATE` on a full-stream subscription (active send, which for that shape has no `msg_id`). A full-stream message only counts when the leading mention is the bot (`QQBOT_BOT_OPENID`).
+- Commands are consumed before `dispatch`/sync, so they are never relayed to TG/DC.
+- `qqbot_render_content` also strips the markdown payload: `<@openid>` → `@<cached name>` or `@qq#<first7>`, `<faceType=…,ext="<base64 json>">` → its `text` (e.g. `[聪明]`).
 
 ### fnOS (飞牛) Notification Channel (2026-11-07)
 

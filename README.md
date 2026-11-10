@@ -125,7 +125,7 @@ QQBOT_API_BASE="https://api.bot.qq.com"
 QQBOT_VERIFY_SIG="auto"          # auto | 1 (fail closed) | 0 (off)
 QQBOT_WEBHOOK_TOKEN=""           # URL-safe token; use when WEBHOOK_SECRET contains # < ;
 QQBOT_BOT_OPENID=""              # bot's own openid — full-stream commands must @ it
-QQBOT_ADMINS=""                  # openids allowed to bind nicknames (space separated, >=7-char prefix)
+QQBOT_ADMINS=""                  # openids allowed to run `历史` (space separated, >=7-char prefix)
 
 BOT_PORT="6160"
 WEBHOOK_SECRET=""                # if set, require ?token=<secret> in webhook URL
@@ -147,7 +147,7 @@ QQ Bot keys in detail:
 | `QQBOT_VERIFY_SIG` | `auto` | `auto` / `1` fail closed / `0` off |
 | `QQBOT_WEBHOOK_TOKEN` | empty | URL-safe token for `/qqbot`, overrides `WEBHOOK_SECRET` |
 | `QQBOT_BOT_OPENID` | empty | bot's own openid; full-stream commands must @ it |
-| `QQBOT_ADMINS` | one id in `etc/config.sh` | openids allowed to bind nicknames (space separated, `>=7`-char prefix ok) |
+| `QQBOT_ADMINS` | one id in `etc/config.sh` | openids allowed to run `历史` (space separated, `>=7`-char prefix ok) |
 | `QQBOT_HIST_KEEP` | `50` | history lines kept per conversation |
 | `QQBOT_HIST_SHOW` | `5` | lines returned by `@bot 历史` |
 
@@ -259,8 +259,10 @@ Official callbacks carry media only as `attachments` (`url` + `content_type`, no
 item is downloaded once and re-uploaded through the existing multipart helpers. The relay is best-effort: a failed
 attachment is logged and the text message still goes out.
 
-Senders are rendered as `🅠 nick(qq#ABC1234)` — the official API never returns a nickname, only a per-bot
-`member_openid`, so members set their own name with `@bot 昵称` and admins bind others with `@bot @someone 宝宝` (see below).
+Senders are rendered as `🅠 nick(qq#ABC1234)`. Events do define `author.username`, but the platform leaves it empty
+for most bots — only a per-bot `member_openid` is guaranteed — so a name appears only when the platform sends one
+(it is cached in `var/state/qqbot-nick-auto/<group_openid>` and reused on later messages). There is no way to set a
+name by hand (see below).
 
 `etc/sync.conf` targets and sources:
 
@@ -274,27 +276,20 @@ discord/ch123456=qqbot/channel/<channel_id>      # DC → qqbot channel
 
 ### QQ Bot Nicknames & History
 
-The official API never returns a display name, so relays show a short id until an admin binds one:
+The official API returns no display name for most bots, so relays show a short id (`qq#ABC1234`) unless the platform
+sends `author.username` on the event.
 
 | Command | Effect | Who |
 |---|---|---|
-| `@bot @someone 昵称` | bind a nickname to the mentioned member | `QQBOT_ADMINS` only |
-| `@bot 291A162 昵称` | bind by the 7-char prefix seen in relays | `QQBOT_ADMINS` only |
-| `@bot 昵称` | rename **yourself** | everyone |
 | `@bot 历史` | last 5 messages with id + body | `QQBOT_ADMINS` only |
 
-```
-@bot @someone 宝宝        # admin: bind somebody else by mention
-@bot 291A162 宝宝         # admin: bind somebody else by the 7-char prefix
-@bot 蓝莓小果冻           # anyone: rename yourself
-@bot 历史                 # admin: last 5 messages, id + body
-```
-
-- Bindings live in `var/state/qqbot-nick/<group_openid>` (`<openid>\t<nick>`, latest wins, unlimited rewrites) and are
-  read by both the adapter and the relay.
-- The two-target forms and `历史` require an id in `QQBOT_ADMINS`; others get `只有管理员能绑定昵称` / `只有管理员能查看历史`.
-- `@bot 昵称` writes the sender's own openid, so it can never touch another member; it only fires for a single word
-  (no space, not a lone hex id, ≤48 bytes), otherwise the text is relayed as ordinary chatter.
+- The name the platform does send is cached per group in `var/state/qqbot-nick-auto/<group_openid>`
+  (`<openid>\t<nick>`, latest wins) and reused on the messages that arrive without one; an empty `username` never
+  clears it.
+- **No bindings**: there is no way to set a nickname by hand. The former `@bot @someone 昵称` / `@bot 291A162 昵称` /
+  `@bot 昵称` commands and `var/state/qqbot-nick/<group_openid>` were removed — a message shaped like one is now
+  ordinary chat and gets relayed.
+- `历史` requires an id in `QQBOT_ADMINS`; everyone else gets `只有管理员能查看历史`.
 - Message history lives in `var/state/qqbot-hist/<group_openid>` (`<msg_id>\t<openid>\t<text>`), trimmed to
   `QQBOT_HIST_KEEP` (50); `历史` prints the newest `QQBOT_HIST_SHOW` (5).
 - Commands are consumed before dispatch, so they never reach sync.
@@ -414,7 +409,7 @@ docker run --rm -v $(pwd):/ayu busybox:musl hush -c "
 | URL / log / maintenance | `test_url`, `test_log`, `test_maint` | 45 |
 
 qqbot coverage splits as `test_qqbot.sh` (45: webhook entry, op=13, op=0 ACK, 401/403, dedupe),
-`test_qqbot_admin.sh` (40: bind / rename / unchanged / history / full-stream), `test_qqbot_commands.sh`
+`test_qqbot_admin.sh` (history / cached names / full-stream), `test_qqbot_commands.sh`
 (13: built-in commands), `test_sync_qqbot.sh` (32: qqbot↔TG/DC relay, attachments, recall).
 
 Tests assume the submodules are initialised (`git submodule update --init`), otherwise `test/run.sh` fails at

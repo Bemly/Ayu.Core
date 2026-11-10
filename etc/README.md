@@ -128,7 +128,7 @@ QQBOT_API_BASE="https://api.bot.qq.com"
 QQBOT_VERIFY_SIG="auto"        # auto | 1 失败即拒 | 0 关闭
 QQBOT_WEBHOOK_TOKEN=""         # URL 安全 token，优先于 WEBHOOK_SECRET
 QQBOT_BOT_OPENID=""            # bot 自身 openid（全量流下命令需 @ 它）
-QQBOT_ADMINS=""                # 允许绑定昵称的 openid，空格分隔
+QQBOT_ADMINS=""                # 允许查看历史的 openid，空格分隔
 QQBOT_HIST_KEEP="50"           # 单会话历史保留条数
 QQBOT_HIST_SHOW="5"            # 「@bot 历史」返回条数
 
