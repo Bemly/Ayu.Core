@@ -14,7 +14,7 @@
 _QC_STATE="$(mktemp -d)"
 _QC_OLD_STATE="$_STATE_DIR"
 _QC_OLD_HIST="${QQBOT_HIST_DIR:-}"
-_QC_OLD_NICK="${QQBOT_NICK_DIR:-}"
+_QC_OLD_NICK="${QQBOT_NICK_AUTO_DIR:-}"
 _QC_OLD_ADMINS="${QQBOT_ADMINS:-}"
 _QC_OLD_BOT="${QQBOT_BOT_OPENID:-}"
 _QC_OLD_MODE="${QQBOT_REPLY_MODE:-}"
@@ -35,11 +35,11 @@ _qc_setup() {
 		printf '{"id":"REPLYID"}\n'
 		return 0
 	}
-	rm -rf "$_QC_STATE/qqbot-hist" "$_QC_STATE/qqbot-nick"
-	mkdir -p "$_QC_STATE/qqbot-hist" "$_QC_STATE/qqbot-nick"
+	rm -rf "$_QC_STATE/qqbot-hist" "$_QC_STATE/qqbot-nick-auto"
+	mkdir -p "$_QC_STATE/qqbot-hist" "$_QC_STATE/qqbot-nick-auto"
 	_STATE_DIR="$_QC_STATE"
 	QQBOT_HIST_DIR="$_QC_STATE/qqbot-hist"
-	QQBOT_NICK_DIR="$_QC_STATE/qqbot-nick"
+	QQBOT_NICK_AUTO_DIR="$_QC_STATE/qqbot-nick-auto"
 	QQBOT_ADMINS="$_QC_ADMIN"
 	QQBOT_BOT_OPENID="$_QC_BOT"
 	QQBOT_REPLY_MODE=""
@@ -92,14 +92,14 @@ test_qqbot_cmd_history_empty() {
 	_qc_unsetup
 }
 
-test_qqbot_cmd_bind_reply_reaches_send() {
+test_qqbot_cmd_history_reply_reaches_send() {
 	_qc_setup
+	qqbot_hist_append G1 MID1 "$_QC_ADMIN" "一条记录"
 	qqbot_admin_handle GROUP_MESSAGE_CREATE \
-		"{\"id\":\"EVT4\",\"group_openid\":\"G1\",\"content\":\"\\u003c@$_QC_BOT\\u003e \\u003c@ABC1234D9F19B085571787A9E0F3C0B6\\u003e 宝宝\"}" \
+		"{\"id\":\"EVT4\",\"group_openid\":\"G1\",\"content\":\"\\u003c@$_QC_BOT\\u003e 历史\"}" \
 		G1 "$_QC_ADMIN"
-	assert_ok "bind in a full-stream group is consumed"
-	assert_eq "$(qqbot_nick_get G1 ABC1234D9F19B085571787A9E0F3C0B6)" "宝宝" "binding stored"
-	assert_contains "$(_qc_body)" "已绑定" "bind confirmation is actually sent"
+	assert_ok "history in a full-stream group is consumed"
+	assert_contains "$(_qc_body)" "一条记录" "history reply is actually sent"
 	assert_contains "$(_qc_paths)" "/v2/groups/G1/messages" "reply goes to the group endpoint"
 
 	_qc_unsetup
@@ -108,7 +108,7 @@ test_qqbot_cmd_bind_reply_reaches_send() {
 _qc_unsetup() {
 	_STATE_DIR="$_QC_OLD_STATE"
 	QQBOT_HIST_DIR="$_QC_OLD_HIST"
-	QQBOT_NICK_DIR="$_QC_OLD_NICK"
+	QQBOT_NICK_AUTO_DIR="$_QC_OLD_NICK"
 	QQBOT_ADMINS="$_QC_OLD_ADMINS"
 	QQBOT_BOT_OPENID="$_QC_OLD_BOT"
 	QQBOT_REPLY_MODE="$_QC_OLD_MODE"
@@ -119,7 +119,7 @@ _qc_unsetup() {
 test_qqbot_cmd_history_full_stream_is_active
 test_qqbot_cmd_history_at_event_is_passive
 test_qqbot_cmd_history_empty
-test_qqbot_cmd_bind_reply_reaches_send
+test_qqbot_cmd_history_reply_reaches_send
 
 rm -f "$_QC_BODY" "$_QC_PATH"
 test_purge "$_QC_STATE"

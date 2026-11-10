@@ -96,16 +96,6 @@ _sync_short_id() {
 	printf '%s' "$1" | cut -c1-"$_ssi_len"
 }
 
-# _sync_qqbot_nick <group_openid> <openid> — a display name bound by a group
-# admin (`@bot @someone 昵称`, see adapter/qqbot/admin.sh). Bindings live in
-# var/state/qqbot-nick, so the relay can use them without loading the adapter.
-_sync_qqbot_nick() {
-	[ -n "$1" ] && [ -n "$2" ] || return 0
-	_sqn_f="${_STATE_DIR:-$_HB/var/state}/qqbot-nick/$1"
-	[ -f "$_sqn_f" ] || return 0
-	awk -F '\t' -v id="$2" '$1 == id { print $2; exit }' "$_sqn_f"
-}
-
 _sync_get_sender() {
 	_pf="$1" _raw="$2"
 	case "$_pf" in
@@ -157,8 +147,10 @@ _sync_get_sender() {
 		printf "%s(%s)" "$_nm" "$_id"
 		;;
 	qqbot)
-		# Official webhook events carry no nickname — only an openid. Show the
-		# first 7 chars as the display name; the full openid stays in the maps.
+		# Events carry `author.username` next to the openid, but the field is
+		# empty for many bots. When this event has none, fall back to the name
+		# the platform reported for that member earlier (the cache the adapter
+		# keeps in var/state/qqbot-nick-auto); there is no binding table.
 		_a="$(json_get "$_raw" author 2>/dev/null)" || _a=""
 		_id="$(json_get "$_a" member_openid 2>/dev/null)" || _id=""
 		case "$_id" in ''|NOTFOUND|null) _id="$(json_get "$_a" user_openid 2>/dev/null)" ;; esac
@@ -166,7 +158,17 @@ _sync_get_sender() {
 		case "$_id" in ''|NOTFOUND|null) _id="" ;; esac
 		_short="$(_sync_short_id "$_id")"
 		[ -n "$_short" ] || _short="unknown"
-		_nick="$(_sync_qqbot_nick "$(json_get "$_raw" group_openid 2>/dev/null)" "$_id")"
+		_un="$(json_get "$_a" username 2>/dev/null)" || _un=""
+		case "$_un" in ''|NOTFOUND|null) _un="" ;; esac
+		[ -z "$_un" ] || _un="$(printf '%s' "$_un" | sed 's/[[:cntrl:]]//g')"
+		_nick="$_un"
+		if [ -z "$_nick" ]; then
+			_cf="${_STATE_DIR:-$_HB/var/state}/qqbot-nick-auto/$(json_get "$_raw" group_openid 2>/dev/null)"
+			case "$_cf" in */|*NOTFOUND|*null) : ;; *)
+				[ -f "$_cf" ] && _nick="$(awk -F '\t' -v id="$_id" '$1 == id { print $2; exit }' "$_cf")"
+				;;
+			esac
+		fi
 		if [ -n "$_nick" ]; then
 			printf "%s(qq#%s)" "$_nick" "$_short"
 		else

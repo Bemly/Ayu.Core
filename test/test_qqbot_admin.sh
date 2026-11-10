@@ -1,8 +1,9 @@
-# test/test_qqbot_admin.sh — group commands: nickname bind / history
+# test/test_qqbot_admin.sh — group commands: history + platform nickname cache
 #
-# The official API exposes no nickname, so an admin binds one to an openid.
-# These tests cover the permission gate, both target forms (mention / 7-char
-# prefix), unlimited rewrites, the relay sender, and the message log.
+# The official API exposes no nickname table to maintain: names come from
+# `author.username`, cached per group. These tests cover the history command,
+# its permission gate, both event shapes, and the cached-name path used by
+# mention rendering and the relay sender.
 
 _QA_STATE="$(mktemp -d)"
 _QA_OLD_STATE="$_STATE_DIR"
@@ -13,22 +14,22 @@ _HB_TMP_BOT_ID="${QQBOT_BOT_OPENID:-}"
 . ./plugin/sync/common.sh
 
 _QA_ADMIN="9DB40F24307A212B6FE37AA4C0BD1A8E"
+_QA_BOT="0000000000000000000000000000000B"
 _QA_P="ABC1234D9F19B085571787A9E0F3C0B6"
 
 # capture the reply instead of calling the API
 _qa_setup() {
 	_QA_REPLY=""
 	mkdir -p "$_QA_STATE"
-	rm -rf "$_QA_STATE/qqbot-nick" "$_QA_STATE/qqbot-hist"
-	QQBOT_NICK_DIR="$_QA_STATE/qqbot-nick"
+	rm -rf "$_QA_STATE/qqbot-hist" "$_QA_STATE/qqbot-nick-auto"
 	QQBOT_HIST_DIR="$_QA_STATE/qqbot-hist"
+	QQBOT_NICK_AUTO_DIR="$_QA_STATE/qqbot-nick-auto"
 	QQBOT_ADMINS="$_QA_ADMIN"
 	# a real bot id in etc/config.sh would reject the fake mentions below
 	QQBOT_BOT_OPENID=""
 	qqbot_reply_event() { _QA_REPLY="$2"; }
 }
 _qa_unsetup() {
-	QQBOT_NICK_DIR="${_QA_STATE}/qqbot-nick"
 	QQBOT_HIST_DIR="${_QA_STATE}/qqbot-hist"
 	QQBOT_ADMINS="$_HB_TMP_ADMIN"
 	QQBOT_BOT_OPENID="$_HB_TMP_BOT_ID"
@@ -38,84 +39,55 @@ test_qqbot_admin_ignores_plain_message() {
 	_qa_setup
 	qqbot_admin_handle GROUP_MESSAGE_CREATE '{"content":"hello"}' G1 "$_QA_ADMIN"
 	assert_fail "plain group message is not a command"
+	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
+		"{\"content\":\"<@!$_QA_BOT> 今天 天气不错\"}" G1 "$_QA_ADMIN"
+	assert_fail "plain chat that mentions the bot is not a command"
 	_qa_unsetup
 }
 
-test_qqbot_admin_rejects_non_admin() {
+test_qqbot_admin_history_requires_admin() {
 	_qa_setup
 	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
-		"{\"content\":\"<@!0000000000000000000000000000000B> <@!$_QA_P> 宝宝\"}" G1 "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
-	assert_ok "non-admin bind is consumed (not relayed)"
+		"{\"content\":\"<@!$_QA_BOT> 历史\"}" G1 "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+	assert_ok "non-admin history is consumed (not relayed)"
 	assert_contains "$_QA_REPLY" "只有管理员" "non-admin told why"
-	assert_eq "$(cat "$_QA_STATE/qqbot-nick/G1" 2>/dev/null)" "" "non-admin writes nothing"
 	_qa_unsetup
 }
 
-test_qqbot_admin_binds_by_mention() {
+test_qqbot_admin_platform_nick_cached_from_event() {
 	_qa_setup
-	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
-		"{\"content\":\"<@!0000000000000000000000000000000B> <@!$_QA_P> 宝宝\"}" G1 "$_QA_ADMIN"
-	assert_ok "admin bind by mention consumed"
-	assert_eq "$(qqbot_nick_get G1 "$_QA_P")" "宝宝" "binding stored"
-	assert_contains "$_QA_REPLY" "已绑定" "confirmation sent"
-	_qa_unsetup
-}
-
-test_qqbot_admin_rebind_rewrites() {
-	_qa_setup
-	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
-		"{\"content\":\"<@!0000000000000000000000000000000B> <@!$_QA_P> 宝宝\"}" G1 "$_QA_ADMIN"
-	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
-		"{\"content\":\"<@!0000000000000000000000000000000B> <@!$_QA_P> 宝子\"}" G1 "$_QA_ADMIN"
-	assert_eq "$(qqbot_nick_get G1 "$_QA_P")" "宝子" "latest binding wins"
-	assert_eq "$(wc -l < "$_QA_STATE/qqbot-nick/G1")" "1" "no duplicate line"
-	assert_contains "$_QA_REPLY" "已修改昵称" "rename reported as a change"
-	assert_contains "$_QA_REPLY" "宝宝 → 宝子" "old and new names shown"
-	_qa_unsetup
-}
-
-test_qqbot_admin_rebind_same_name() {
-	_qa_setup
-	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
-		"{\"content\":\"<@!0000000000000000000000000000000B> <@!$_QA_P> 宝宝\"}" G1 "$_QA_ADMIN"
-	assert_contains "$_QA_REPLY" "已绑定" "first bind says bound"
-	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
-		"{\"content\":\"<@!0000000000000000000000000000000B> <@!$_QA_P> 宝宝\"}" G1 "$_QA_ADMIN"
-	assert_contains "$_QA_REPLY" "昵称未变化" "same value reported as unchanged"
-	_qa_unsetup
-}
-
-test_qqbot_admin_binds_by_prefix() {
-	_qa_setup
-	qqbot_hist_append G1 M1 "CBD5E00" "谷歌充值多少钱嘛"
-	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
-		"{\"content\":\"<@!0000000000000000000000000000000B> CBD5E00 小明\"}" G1 "$_QA_ADMIN"
-	assert_ok "admin bind by 7-char prefix consumed"
-	assert_eq "$(qqbot_nick_get G1 "CBD5E00")" "小明" "prefix resolved via history"
-	_qa_unsetup
-}
-
-test_qqbot_admin_unknown_prefix() {
-	_qa_setup
-	# not hex → ordinary chat, must still reach the relay
-	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
-		"{\"content\":\"<@!0000000000000000000000000000000B> ZZZZZZZ 无名\"}" G1 "$_QA_ADMIN"
-	assert_fail "non-hex token is an ordinary message"
-	assert_eq "$(cat "$_QA_STATE/qqbot-nick/G1" 2>/dev/null)" "" "nothing written"
-	# hex but nobody matches → tool answers instead of silently relaying
-	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
-		"{\"content\":\"<@!0000000000000000000000000000000B> AAAAAAA 无名\"}" G1 "$_QA_ADMIN"
-	assert_contains "$_QA_REPLY" "找不到" "unknown prefix reported"
-	_qa_unsetup
-}
-
-test_qqbot_admin_sender_and_render_use_nick() {
-	_qa_setup
-	qqbot_nick_set G1 "$_QA_P" "宝宝"
-	assert_eq "$(_sync_get_sender qqbot "{\"group_openid\":\"G1\",\"author\":{\"member_openid\":\"$_QA_P\"}}")" \
-		"宝宝(qq#ABC1234)" "relay sender shows bound name"
-	assert_eq "$(qqbot_render_content "<@$_QA_P> 说话" G1)" "@宝宝 说话" "mention renders as the name"
+	assert_eq "$(qqbot_nick_auto_get G1 "$_QA_P")" "" "no cached name before an event"
+	qqbot_nick_auto_set G1 "$_QA_P" "小明"
+	assert_eq "$(qqbot_nick_auto_get G1 "$_QA_P")" "小明" "platform name cached"
+	assert_eq "$(qqbot_render_content "<@$_QA_P> 说话" G1)" "@小明 说话" "mention renders the cached name"
 	assert_eq "$(qqbot_render_content "<@$_QA_P> 说话")" "@qq#ABC1234 说话" "no group → short id"
+	qqbot_nick_auto_set G1 "$_QA_P" "小明"
+	assert_eq "$(wc -l < "$_QA_STATE/qqbot-nick-auto/G1")" "1" "same name does not append a line"
+	qqbot_nick_auto_set G1 "$_QA_P" "小红"
+	assert_eq "$(qqbot_nick_auto_get G1 "$_QA_P")" "小红" "latest platform name wins"
+	assert_eq "$(wc -l < "$_QA_STATE/qqbot-nick-auto/G1")" "1" "no duplicate line per member"
+	_qa_unsetup
+}
+
+test_qqbot_admin_sender_uses_cached_nick() {
+	_qa_setup
+	qqbot_nick_auto_set G1 "$_QA_P" "小明"
+	assert_eq "$(_sync_get_sender qqbot "{\"group_openid\":\"G1\",\"author\":{\"member_openid\":\"$_QA_P\"}}")" \
+		"小明(qq#ABC1234)" "relay sender shows the cached name"
+	assert_eq "$(_sync_get_sender qqbot "{\"group_openid\":\"G1\",\"author\":{\"member_openid\":\"$_QA_P\",\"username\":\"小红\"}}")" \
+		"小红(qq#ABC1234)" "event username is used verbatim"
+	_qa_unsetup
+}
+
+test_qqbot_admin_webhook_caches_author_username() {
+	_qa_setup
+	dispatch() { return 0; }
+	qqbot_handle_event GROUP_AT_MESSAGE_CREATE \
+		'{"id":"M1","content":"hi","group_openid":"G1","author":{"member_openid":"'"$_QA_P"'","username":"小明","bot":false}}' '{}'
+	assert_eq "$(qqbot_nick_auto_get G1 "$_QA_P")" "小明" "inbound event caches author.username"
+	qqbot_handle_event GROUP_AT_MESSAGE_CREATE \
+		'{"id":"M2","content":"hi","group_openid":"G1","author":{"member_openid":"'"$_QA_P"'","username":"","bot":false}}' '{}'
+	assert_eq "$(qqbot_nick_auto_get G1 "$_QA_P")" "小明" "empty username leaves the cache alone"
 	_qa_unsetup
 }
 
@@ -123,12 +95,14 @@ test_qqbot_admin_history_lists_ids() {
 	_qa_setup
 	qqbot_hist_append G1 M10 "$_QA_P" "第一句"
 	qqbot_hist_append G1 M11 "$_QA_P" "第二句"
+	qqbot_nick_auto_set G1 "$_QA_P" "小明"
 	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE '{"content":"<@!0000000000000000000000000000000B> 历史"}' G1 "$_QA_ADMIN"
 	assert_ok "history consumed"
 	assert_contains "$_QA_REPLY" "id=M10" "oldest id listed"
 	assert_contains "$_QA_REPLY" "id=M11" "newest id listed"
 	assert_contains "$_QA_REPLY" "第一句" "body listed"
 	assert_contains "$_QA_REPLY" "第二句" "body listed"
+	assert_contains "$_QA_REPLY" "小明" "cached platform name shown instead of qq#"
 	_qa_unsetup
 }
 
@@ -148,20 +122,16 @@ test_qqbot_admin_history_keeps_limit() {
 	_qa_unsetup
 }
 
-
 # QQ HTML-escapes the angle brackets of a mention: content arrives as
 # `\u003c@openid\u003e` (literal backslash-u, one JSON layer down). Commands must
 # still be recognised, otherwise they are relayed and never answered.
 test_qqbot_admin_escaped_mentions() {
 	_qa_setup
-	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
-		"{\"content\":\"\\\\u003c@0000000000000000000000000000000B\\\\u003e \\\\u003c@$_QA_P\\\\u003e 宝宝\"}" G1 "$_QA_ADMIN"
-	assert_ok "escaped mention bind consumed"
-	assert_eq "$(qqbot_nick_get G1 "$_QA_P")" "宝宝" "escaped mention bound"
-	assert_contains "$_QA_REPLY" "已绑定" "confirmation sent for escaped mention"
+	qqbot_hist_append G1 M12 "$_QA_P" "转义句"
 	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
 		'{"content":"\\u003c@0000000000000000000000000000000B\\u003e 历史"}' G1 "$_QA_ADMIN"
 	assert_ok "escaped history consumed"
+	assert_contains "$_QA_REPLY" "转义句" "escaped history replies with the log"
 	_qa_unsetup
 }
 
@@ -170,10 +140,6 @@ test_qqbot_admin_escaped_mentions() {
 # Commands have to work there too, while plain chatter must stay untouched.
 test_qqbot_admin_full_stream_commands() {
 	_qa_setup
-	qqbot_admin_handle GROUP_MESSAGE_CREATE \
-		"{\"content\":\"<@0000000000000000000000000000000B> <@$_QA_P> 宝宝\"}" G1 "$_QA_ADMIN"
-	assert_ok "full-stream bind consumed"
-	assert_eq "$(qqbot_nick_get G1 "$_QA_P")" "宝宝" "full-stream mention bound"
 	qqbot_hist_append G1 M20 "$_QA_P" "测试句"
 	qqbot_admin_handle GROUP_MESSAGE_CREATE \
 		'{"content":"<@0000000000000000000000000000000B> 历史"}' G1 "$_QA_ADMIN"
@@ -195,32 +161,20 @@ test_qqbot_admin_full_stream_requires_bot_mention() {
 	_qa_unsetup
 }
 
-test_qqbot_admin_self_rename_any_member() {
+# No binding table survives: the former command forms must be ordinary chat.
+test_qqbot_admin_no_bind_commands() {
 	_qa_setup
-	# "@bot 昵称" renames the sender; no admin needed
 	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
-		"{\"content\":\"<@!0000000000000000000000000000000B> 蓝莓小果冻\"}" G1 "$_QA_P"
-	assert_ok "self rename consumed for a non-admin"
-	assert_eq "$(qqbot_nick_get G1 "$_QA_P")" "蓝莓小果冻" "self rename writes the sender"
-	assert_contains "$_QA_REPLY" "已设置你的昵称" "self rename confirmed"
+		"{\"content\":\"<@!$_QA_BOT> <@!$_QA_P> 宝宝\"}" G1 "$_QA_ADMIN"
+	assert_fail "bind by mention is no longer a command"
 	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
-		"{\"content\":\"<@!0000000000000000000000000000000B> 蓝莓果冻\"}" G1 "$_QA_P"
-	assert_contains "$_QA_REPLY" "已修改你的昵称" "second self rename reports the change"
-	assert_eq "$(wc -l < "$_QA_STATE/qqbot-nick/G1")" "1" "one line per member"
-	_qa_unsetup
-}
-
-test_qqbot_admin_self_rename_edge_cases() {
-	_qa_setup
-	# two words → ordinary chat, must still reach the relay
+		"{\"content\":\"<@!$_QA_BOT> ABC1234 宝宝\"}" G1 "$_QA_ADMIN"
+	assert_fail "bind by prefix is no longer a command"
 	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
-		"{\"content\":\"<@!0000000000000000000000000000000B> 今天 天气不错\"}" G1 "$_QA_P"
-	assert_fail "multi-word text is not a nickname"
-	# a lone hex token is an unfinished bind → usage, not a rename
-	qqbot_admin_handle GROUP_AT_MESSAGE_CREATE \
-		"{\"content\":\"<@!0000000000000000000000000000000B> 291A162\"}" G1 "$_QA_P"
-	assert_contains "$_QA_REPLY" "改自己的昵称" "lone id answers with usage"
-	assert_eq "$(cat "$_QA_STATE/qqbot-nick/G1" 2>/dev/null)" "" "nothing renamed"
+		"{\"content\":\"<@!$_QA_BOT> 蓝莓小果冻\"}" G1 "$_QA_P"
+	assert_fail "self rename is no longer a command"
+	if [ -e "$_QA_STATE/qqbot-nick" ]; then false; else true; fi
+	assert_ok "no binding state written"
 	_qa_unsetup
 }
 
@@ -228,17 +182,13 @@ test_qqbot_admin_full_stream_commands
 test_qqbot_admin_full_stream_requires_bot_mention
 test_qqbot_admin_escaped_mentions
 test_qqbot_admin_ignores_plain_message
-test_qqbot_admin_rejects_non_admin
-test_qqbot_admin_binds_by_mention
-test_qqbot_admin_rebind_rewrites
-test_qqbot_admin_rebind_same_name
-test_qqbot_admin_binds_by_prefix
-test_qqbot_admin_unknown_prefix
-test_qqbot_admin_sender_and_render_use_nick
+test_qqbot_admin_history_requires_admin
+test_qqbot_admin_platform_nick_cached_from_event
+test_qqbot_admin_sender_uses_cached_nick
+test_qqbot_admin_webhook_caches_author_username
 test_qqbot_admin_history_lists_ids
 test_qqbot_admin_history_keeps_limit
-test_qqbot_admin_self_rename_any_member
-test_qqbot_admin_self_rename_edge_cases
+test_qqbot_admin_no_bind_commands
 
 _STATE_DIR="$_QA_OLD_STATE"
 test_purge "$_QA_STATE"

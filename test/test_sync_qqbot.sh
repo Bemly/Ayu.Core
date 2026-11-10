@@ -346,6 +346,21 @@ test_sync_sender_shows_short_ids() {
 		"宝宝(123456789)" "qq sender keeps full QQ number"
 }
 
+# author.username is documented for both group and C2C events; it is empty for
+# many bots, so the name is used when present and the openid prefix otherwise.
+# There is no binding table: nothing in var/state can override the event name.
+test_sync_sender_prefers_author_username() {
+	assert_eq "$(_sync_get_sender qqbot '{"author":{"member_openid":"291A162D9F19B085571787A9E0F3C0B6","username":"小明"}}')" \
+		"小明(qq#291A162)" "qqbot sender uses author.username"
+	assert_eq "$(_sync_get_sender qqbot '{"author":{"member_openid":"291A162D9F19B085571787A9E0F3C0B6","username":""}}')" \
+		"qq#291A162" "empty username falls back to qq# + first7"
+	mkdir -p "$_STATE_DIR"
+	printf '291A162D9F19B085571787A9E0F3C0B6\t宝宝\n' > "$_STATE_DIR/qqbot-nick"
+	assert_eq "$(_sync_get_sender qqbot '{"group_openid":"G1","author":{"member_openid":"291A162D9F19B085571787A9E0F3C0B6","username":"小明"}}')" \
+		"小明(qq#291A162)" "no state file can override author.username"
+	rm -f "$_STATE_DIR/qqbot-nick"
+}
+
 # ---- telegram -> qqbot media -----------------------------------------------
 # The qqbot target used to send text only, so a TG relay arrived as the bare
 # line "[贴纸: ⭐]" — the sticker itself never left Telegram.
@@ -463,6 +478,7 @@ test_sync_qqbot_attach_url_unescapes_amp
 test_sync_qqbot_bad_download_detected
 test_sync_qqbot_cdn_error_body_not_forwarded
 test_sync_sender_shows_short_ids
+test_sync_sender_prefers_author_username
 test_sync_telegram_to_qqbot_prefix
 test_sync_telegram_sticker_to_qqbot_image
 test_sync_telegram_video_sticker_to_qqbot_video

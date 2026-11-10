@@ -225,15 +225,16 @@ qqbot_attachments_text() {
 # QQ official message content is markdown-ish: mentions are `<@OPENID>` and
 # emoji are `<faceType=4,faceId="",ext="<base64 json>">`. Both are unreadable
 # in a relayed line (a 32-char openid plus a base64 blob per message), so
-# mentions render as `@<bound nickname>` or `@qq#<first7>`, and faces as their
-# `text` field. A nickname bound by an admin (adapter/qqbot/admin.sh) wins.
+# mentions render as `@<platform nickname>` or `@qq#<first7>`, and faces as
+# their `text` field. The nickname comes from `author.username`, cached per
+# group by adapter/qqbot/admin.sh — there is no hand-maintained binding table.
 qqbot_render_content() {
 	_qrc_t="$1" _qrc_gid="$2"
 	_qrc_at="$(printf '%s' "$_qrc_t" | grep -o '<@[A-Za-z0-9!]\{8,\}>' | sed 's/^<@//; s/>$//; s/^!//' | sort -u)"
 	for _qrc_o in $_qrc_at; do
 		_qrc_s="$(printf '%s' "$_qrc_o" | cut -c1-7)"
 		_qrc_n=""
-		[ -n "$_qrc_gid" ] && _qrc_n="$(qqbot_nick_get "$_qrc_gid" "$_qrc_o")"
+		[ -n "$_qrc_gid" ] && _qrc_n="$(qqbot_nick_auto_get "$_qrc_gid" "$_qrc_o")"
 		if [ -n "$_qrc_n" ]; then
 			_qrc_lbl="@$_qrc_n"
 		else
@@ -284,10 +285,18 @@ qqbot_handle_event() {
 			_qh_gid="$(json_get "$_qh_d" group_openid 2>/dev/null)" || _qh_gid=""
 			_qh_uid="$(json_get "$_qh_a" member_openid 2>/dev/null)" || _qh_uid=""
 			_qh_bot="$(json_get "$_qh_a" bot 2>/dev/null)" || _qh_bot="false"
+			# `author.username` is documented for the group events; it is empty
+			# for many bots, so whatever arrives is cached per group and reused
+			# on the messages that come without one.
+			_qh_un="$(json_get "$_qh_a" username 2>/dev/null)" || _qh_un=""
+			case "$_qh_un" in ''|NOTFOUND|null) _qh_un="" ;; esac
+			# Control characters would break the tab-separated state file.
+			[ -z "$_qh_un" ] || _qh_un="$(printf '%s' "$_qh_un" | sed 's/[[:cntrl:]]/ /g')"
+			[ -z "$_qh_un" ] || qqbot_nick_auto_set "$_qh_gid" "$_qh_uid" "$_qh_un"
 			_qh_txt="$(qqbot_message_text "$_qh_d" "$_qh_gid")"
 			[ "$_qh_bot" = "true" ] && return 0
-			log_info "qqbot: group $_qh_gid ← $_qh_uid: $_qh_txt"
-			# admin commands (nickname bind / 历史) are consumed here: they are
+			log_info "qqbot: group $_qh_gid ← $_qh_uid${_qh_un:+ ($_qh_un)}: $_qh_txt"
+			# admin commands (历史) are consumed here: they are
 			# addressed to the bot, so relaying them to other platforms is noise
 			if qqbot_admin_handle "$_qh_t" "$_qh_d" "$_qh_gid" "$_qh_uid"; then
 				return 0
@@ -299,8 +308,10 @@ qqbot_handle_event() {
 		C2C_MESSAGE_CREATE)
 			_qh_a="$(json_get "$_qh_d" author 2>/dev/null)" || _qh_a=""
 			_qh_uid="$(json_get "$_qh_a" user_openid 2>/dev/null)" || _qh_uid=""
+			_qh_un="$(json_get "$_qh_a" username 2>/dev/null)" || _qh_un=""
+			case "$_qh_un" in ''|NOTFOUND|null) _qh_un="" ;; esac
 			_qh_txt="$(qqbot_message_text "$_qh_d")"
-			log_info "qqbot: c2c ← $_qh_uid: $_qh_txt"
+			log_info "qqbot: c2c ← $_qh_uid${_qh_un:+ ($_qh_un)}: $_qh_txt"
 			dispatch "qqbot" "c2c_message" "$_qh_uid" "$_qh_txt" "$_qh_d"
 			;;
 		AT_MESSAGE_CREATE|MESSAGE_CREATE)

@@ -1,73 +1,64 @@
-# adapter/qqbot/admin.sh — group commands: nickname bind / history
+# adapter/qqbot/admin.sh — group commands: history + platform nickname cache
 #
-# The official API never exposes a member nickname: every event carries only a
-# per-bot openid, and relays would otherwise show `qq#<first7>` forever. An
-# admin can therefore teach the bot a display name:
+# Every event carries `author.username` next to the per-bot openid, but the
+# platform leaves it empty for many bots, so relays would otherwise only ever
+# show `qq#<first7>`. Whatever the platform does send is cached per group here
+# (var/state/qqbot-nick-auto) so that mentions and relays keep the name on the
+# messages that arrive without one. There is no binding table: names cannot be
+# set by hand, only taken from the platform.
 #
-#   @bot @someone 宝宝        bind the mentioned member
-#   @bot 291A162 宝宝         bind by the 7-char prefix seen in relays
 #   @bot 历史                 the last 5 messages, each with its id
-#
-# Latest binding wins, so a name can be rewritten without limit. Only openids
-# listed in QQBOT_ADMINS (etc/config.sh) may bind; an entry may be a full
-# openid or a ≥7-char prefix (group member openids are per-group, so an admin
-# configured for one group is nobody in another).
 
 . "$_HB/adapter/qqbot/handler.sh"
 
-QQBOT_NICK_DIR="${QQBOT_NICK_DIR:-${_STATE_DIR:-$_HB/var/state}/qqbot-nick}"
+# Nicknames the platform itself reports, one `<openid>\t<nick>` line per member.
+QQBOT_NICK_AUTO_DIR="${QQBOT_NICK_AUTO_DIR:-${_STATE_DIR:-$_HB/var/state}/qqbot-nick-auto}"
 QQBOT_HIST_DIR="${QQBOT_HIST_DIR:-${_STATE_DIR:-$_HB/var/state}/qqbot-hist}"
 QQBOT_HIST_KEEP="${QQBOT_HIST_KEEP:-50}"   # lines kept per chat
 QQBOT_HIST_SHOW="${QQBOT_HIST_SHOW:-5}"    # lines returned by 历史
 
 # qqbot_gid_ok <group_openid> → 0 when the id is safe to use as a filename
 # group_openid comes from the event JSON; every path below is "$dir/$gid", so a
-# value carrying '/' or '..' would walk out of the state dir (and a nickname
-# file write would then land anywhere). handler.sh already constrains its own
-# paths — this file did not, which made the group id a half-guarded input.
+# value carrying '/' or '..' would walk out of the state dir. handler.sh already
+# constrains its own paths — this file must guard the ones it builds.
 qqbot_gid_ok() {
 	case "$1" in ''|*[!0-9A-Za-z_-]*) return 1 ;; esac
 	[ "${#1}" -le 64 ] || return 1
 	return 0
 }
 
-# ---- nickname bindings ---------------------------------------------------
+# ---- platform-reported nicknames ----------------------------------------
 
-# qqbot_nick_file <group_openid> → path of the tab-separated <openid>\t<nick>
-qqbot_nick_file() {
+# qqbot_nick_auto_file <group_openid>
+qqbot_nick_auto_file() {
 	qqbot_gid_ok "$1" || return 1
-	printf '%s/%s' "$QQBOT_NICK_DIR" "$1"
+	printf '%s/%s' "$QQBOT_NICK_AUTO_DIR" "$1"
 }
 
-# qqbot_nick_get <group_openid> <openid> → nickname, empty when unbound
-qqbot_nick_get() {
+# qqbot_nick_auto_get <group_openid> <openid> → cached platform nickname
+qqbot_nick_auto_get() {
 	[ -n "$1" ] && [ -n "$2" ] || return 0
-	_qng_f="$(qqbot_nick_file "$1")"
-	[ -f "$_qng_f" ] || return 0
-	awk -F '\t' -v id="$2" '$1 == id { print $2; exit }' "$_qng_f"
+	_qnag_f="$(qqbot_nick_auto_file "$1")" || return 0
+	[ -f "$_qnag_f" ] || return 0
+	awk -F '\t' -v id="$2" '$1 == id { print $2; exit }' "$_qnag_f"
 }
 
-# qqbot_nick_set <group_openid> <openid> <nickname> — rewrite-or-add
-qqbot_nick_set() {
+# qqbot_nick_auto_set <group_openid> <openid> <nickname>
+# Only rewrites when the value actually changed: events arrive per message and
+# an unconditional write would churn the state dir on every line of chat.
+qqbot_nick_auto_set() {
 	[ -n "$1" ] && [ -n "$2" ] && [ -n "$3" ] || return 1
-	mkdir -p "$QQBOT_NICK_DIR" 2>/dev/null
-	_qns_f="$(qqbot_nick_file "$1")"
-	_qns_t="$_qns_f.tmp.$$"
-	if [ -f "$_qns_f" ]; then
-		awk -F '\t' -v id="$2" '$1 != id' "$_qns_f" > "$_qns_t" || return 1
+	[ "$(qqbot_nick_auto_get "$1" "$2")" = "$3" ] && return 0
+	mkdir -p "$QQBOT_NICK_AUTO_DIR" 2>/dev/null
+	_qnas_f="$(qqbot_nick_auto_file "$1")" || return 1
+	_qnas_t="$_qnas_f.tmp.$$"
+	if [ -f "$_qnas_f" ]; then
+		awk -F '\t' -v id="$2" '$1 != id' "$_qnas_f" > "$_qnas_t" || return 1
 	else
-		: > "$_qns_t" || return 1
+		: > "$_qnas_t" || return 1
 	fi
-	printf '%s\t%s\n' "$2" "$3" >> "$_qns_t" || return 1
-	mv "$_qns_t" "$_qns_f"
-}
-
-# qqbot_nick_drop <group_openid> <openid>
-qqbot_nick_drop() {
-	_qnd_f="$(qqbot_nick_file "$1")"
-	[ -f "$_qnd_f" ] || return 0
-	awk -F '\t' -v id="$2" '$1 != id' "$_qnd_f" > "$_qnd_f.tmp.$$" \
-		&& mv "$_qnd_f.tmp.$$" "$_qnd_f"
+	printf '%s\t%s\n' "$2" "$3" >> "$_qnas_t" || return 1
+	mv "$_qnas_t" "$_qnas_f"
 }
 
 # ---- recent message log --------------------------------------------------
@@ -114,44 +105,7 @@ qqbot_is_admin() {
 	return 1
 }
 
-# ---- target resolution ---------------------------------------------------
-
-# qqbot_resolve_openid <group_openid> <token> → full openid
-# A token is either the full openid, or the 7-char prefix shown in relays. The
-# prefix is resolved against bindings and the message log; an ambiguous prefix
-# resolves to nothing (the caller answers "ambiguous").
-qqbot_resolve_openid() {
-	_qro_t="$2"
-	[ -n "$_qro_t" ] || return 0
-	case "$_qro_t" in *[!0-9A-Fa-f]*) return 0 ;; esac
-	_qro_len="$(printf '%s' "$_qro_t" | wc -c)"
-	if [ "$_qro_len" -ge 20 ]; then
-		printf '%s' "$_qro_t"
-		return 0
-	fi
-	qqbot_gid_ok "$1" || return 0
-	_qro_nf="$(qqbot_nick_file "$1")"
-	_qro_hf="$QQBOT_HIST_DIR/$1"
-	_qro_c="$(
-		{
-			[ -f "$_qro_nf" ] && awk -F '\t' -v p="$_qro_t" 'index($1, p) == 1 { print $1 }' "$_qro_nf"
-			[ -f "$_qro_hf" ] && awk -F '\t' -v p="$_qro_t" 'index($2, p) == 1 { print $2 }' "$_qro_hf"
-		} | sort -u
-	)"
-	_qro_n="$(printf '%s\n' "$_qro_c" | grep -c . 2>/dev/null)"
-	[ "$_qro_n" = "1" ] && printf '%s' "$_qro_c"
-	return 0
-}
-
 # ---- commands ------------------------------------------------------------
-
-qqbot_admin_usage() {
-	printf '用法：
-@bot @某人 昵称   绑定（管理员）
-@bot 291A162 昵称  按7位id绑定（管理员）
-@bot 昵称          改自己的昵称（所有人）
-@bot 历史          最近5条（管理员）'
-}
 
 qqbot_admin_history() {
 	_qah_d="$1" _qah_gid="$2" _qah_mode="${3:-passive}"
@@ -161,7 +115,7 @@ qqbot_admin_history() {
 		return 0
 	fi
 	_qah_txt="最近 $QQBOT_HIST_SHOW 条：
-$(printf '%s\n' "$_qah_lines" | awk -F '\t' -v nkdir="$QQBOT_NICK_DIR" -v gid="$_qah_gid" '
+$(printf '%s\n' "$_qah_lines" | awk -F '\t' -v nkdir="$QQBOT_NICK_AUTO_DIR" -v gid="$_qah_gid" '
 	{
 		i++
 		name = ""
@@ -202,8 +156,6 @@ qqbot_admin_handle() {
 	# mentions arrive HTML-escaped (`\u003c@openid\u003e`); decode before parsing
 	_qam_c="$(utf8_decode "$_qam_c")"
 
-	# mentions in order: the bot comes first (the message is an @-message),
-	# any further one is the bind target
 	_qam_m="$(printf '%s' "$_qam_c" | grep -o '<@[A-Za-z0-9!]\{8,\}>' \
 		| sed 's/^<@//; s/>$//; s/^!//')"
 	_qam_rest="$(printf '%s' "$_qam_c" | sed 's/<@[A-Za-z0-9!]\{8,\}>//g' \
@@ -219,15 +171,10 @@ qqbot_admin_handle() {
 	fi
 	[ -n "$_qam_rest" ] || return 1
 
-	# mentions in the message: the bot itself, plus possibly a bind target
-	_qam_n="$(printf '%s\n' "$_qam_m" | grep -c . 2>/dev/null)"
-	[ -n "$_qam_n" ] || _qam_n=0
-
 	case "$_qam_rest" in
 		历史|/history|history)
-			# history leaks message bodies plus every member openid; it used to
-			# be answered before the admin check below, so any member could read
-			# the group. Refuse here, before the bind-specific guard.
+			# history leaks message bodies plus every member openid, so it is
+			# admin-only.
 			if ! qqbot_is_admin "$_qam_uid"; then
 				qqbot_reply_event "$_qam_d" "只有管理员能查看历史" "$_qam_mode"
 				return 0
@@ -236,88 +183,5 @@ qqbot_admin_handle() {
 			return 0
 			;;
 	esac
-
-	# "@bot 昵称" — one bare word, no other mention — renames the sender
-	# themselves. Every member may do this; setting somebody else's name
-	# stays admin-only and is handled below.
-	if [ "$_qam_n" -le 1 ]; then
-		case "$_qam_rest" in
-			*' '*) : ;;
-			*)
-				# a lone hex word is a half-typed bind ("@bot 291A162"), not a name
-				case "$_qam_rest" in
-					*[!0-9A-Fa-f]*)
-						# long text stays an ordinary message so @-chatter is relayed
-						if [ "${#_qam_rest}" -le 48 ]; then
-							_qam_old="$(qqbot_nick_get "$_qam_gid" "$_qam_uid")"
-							if ! qqbot_nick_set "$_qam_gid" "$_qam_uid" "$_qam_rest"; then
-								qqbot_reply_event "$_qam_d" "改名失败：无法写入映射" "$_qam_mode"
-								return 1
-							fi
-							_qam_short=$(printf '%s' "$_qam_uid" | cut -c1-7)
-							if [ -z "$_qam_old" ]; then
-								qqbot_reply_event "$_qam_d" "已设置你的昵称：$_qam_rest（qq#$_qam_short）" "$_qam_mode"
-							elif [ "$_qam_old" = "$_qam_rest" ]; then
-								qqbot_reply_event "$_qam_d" "昵称未变化：$_qam_rest（qq#$_qam_short）" "$_qam_mode"
-							else
-								qqbot_reply_event "$_qam_d" "已修改你的昵称：$_qam_old → $_qam_rest（qq#$_qam_short）" "$_qam_mode"
-							fi
-							log_info "qqbot: $_qam_uid self-renamed qq#$_qam_short = $_qam_rest"
-							return 0
-						fi
-						;;
-					*)
-						qqbot_reply_event "$_qam_d" "$(qqbot_admin_usage)" "$_qam_mode"
-						return 0
-						;;
-				esac
-				;;
-		esac
-	fi
-
-	# target: second mention, else the first word (7-char id form)
-	if [ "$_qam_n" -ge 2 ]; then
-		_qam_tgt="$(printf '%s\n' "$_qam_m" | sed -n 2p)"
-		_qam_nick="$_qam_rest"
-	else
-		_qam_tgt="${_qam_rest%% *}"
-		[ "$_qam_tgt" = "$_qam_rest" ] && return 1   # one word: not a bind
-		_qam_nick="${_qam_rest#* }"
-	fi
-	# neither a 32-char openid nor a short hex id → ordinary message
-	case "$_qam_tgt" in *[!0-9A-Fa-f]*) return 1 ;; esac
-
-	if ! qqbot_is_admin "$_qam_uid"; then
-		qqbot_reply_event "$_qam_d" "只有管理员能绑定昵称" "$_qam_mode"
-		return 0
-	fi
-
-	_qam_nick="$(printf '%s' "$_qam_nick" | tr -d '<>' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
-	if [ -z "$_qam_nick" ]; then
-		qqbot_reply_event "$_qam_d" "$(qqbot_admin_usage)" "$_qam_mode"
-		return 0
-	fi
-
-	_qam_oid="$(qqbot_resolve_openid "$_qam_gid" "$_qam_tgt")"
-	if [ -z "$_qam_oid" ]; then
-		qqbot_reply_event "$_qam_d" "找不到 $_qam_tgt 对应的成员（让他先发一句话，或用完整 openid）" "$_qam_mode"
-		return 0
-	fi
-	_qam_old="$(qqbot_nick_get "$_qam_gid" "$_qam_oid")"
-	if ! qqbot_nick_set "$_qam_gid" "$_qam_oid" "$_qam_nick"; then
-		qqbot_reply_event "$_qam_d" "绑定失败：无法写入映射" "$_qam_mode"
-		return 1
-	fi
-	_qam_short=$(printf '%s' "$_qam_oid" | cut -c1-7)
-	if [ -z "$_qam_old" ]; then
-		qqbot_reply_event "$_qam_d" "已绑定 qq#$_qam_short = $_qam_nick" "$_qam_mode"
-		log_info "qqbot: admin $_qam_uid bound qq#$_qam_short = $_qam_nick"
-	elif [ "$_qam_old" = "$_qam_nick" ]; then
-		qqbot_reply_event "$_qam_d" "昵称未变化：qq#$_qam_short = $_qam_nick" "$_qam_mode"
-		log_info "qqbot: admin $_qam_uid nickname unchanged qq#$_qam_short = $_qam_nick"
-	else
-		qqbot_reply_event "$_qam_d" "已修改昵称 qq#$_qam_short：$_qam_old → $_qam_nick" "$_qam_mode"
-		log_info "qqbot: admin $_qam_uid renamed qq#$_qam_short: $_qam_old -> $_qam_nick"
-	fi
-	return 0
+	return 1
 }
