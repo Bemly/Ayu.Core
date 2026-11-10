@@ -19,6 +19,10 @@ if [ "$(id -u)" = "0" ]; then
 fi
 # Group-readable, never world-readable: logs and state carry chat metadata.
 find "$_HB" -name "*.sh" -exec chmod u+x,g+rx,o-rwx {} + 2>/dev/null
+
+# httpd drops to nobody before forking a CGI, so the o-rwx above would make
+# every endpoint answer 404. The directory index points straight at web.sh.
+chmod 755 "$_HB"/cgi-bin/*.sh 2>/dev/null
 chmod 2750 var var/log var/state 2>/dev/null
 chmod 640 var/log/*.log 2>/dev/null
 find "$_HB/var/state" -type f -exec chmod 640 {} + 2>/dev/null
