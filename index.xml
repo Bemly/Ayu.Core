@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/css" href="/cgi-bin/web.sh?css=gate"?>
+<panel>
+  <bar><brand>Ayu <dim>Console</dim></brand><hint>XML + CSS · 无 JavaScript</hint></bar>
+  <sheet>
+    <card>
+      <h2>入口</h2>
+      <kv k="控制台"><v>/cgi-bin/web.sh</v></kv>
+      <kv k="样式表"><v>/cgi-bin/web.sh?css=1</v></kv>
+      <note>本目录不再提供 index.html：面板是 XML 文档 + 一份 CSS，由 CGI 生成。
+        直接访问 /cgi-bin/web.sh 进入控制台。</note>
+    </card>
+  </sheet>
+  <footer>Ayu.Core · xml dashboard</footer>
+</panel>

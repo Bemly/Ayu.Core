@@ -13,9 +13,9 @@ mkdir -p var/log var/state /tmp/img
 # Fix permissions (tar/rsync may land code as another uid; busybox httpd
 # answers 404 for CGI scripts it cannot attribute to the server user).
 if [ "$(id -u)" = "0" ]; then
-	chown root:root "$_HB"/*.md "$_HB"/index.html "$_HB"/Dockerfile "$_HB"/LICENSE 2>/dev/null
+	chown root:root "$_HB"/*.md "$_HB"/index.xml "$_HB"/Dockerfile "$_HB"/LICENSE 2>/dev/null
 	chown -R root:root "$_HB"/cgi-bin "$_HB"/adapter "$_HB"/lib "$_HB"/plugin \
-		"$_HB"/etc "$_HB"/webui "$_HB"/hush-json "$_HB"/hush-ed25519 "$_HB"/test 2>/dev/null
+		"$_HB"/etc "$_HB"/hush-json "$_HB"/hush-ed25519 "$_HB"/test 2>/dev/null
 fi
 # Group-readable, never world-readable: logs and state carry chat metadata.
 find "$_HB" -name "*.sh" -exec chmod u+x,g+rx,o-rwx {} + 2>/dev/null

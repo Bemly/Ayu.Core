@@ -1,5 +1,5 @@
 #!/bin/sh
-# api.sh — read-only JSON API backing webui/
+# api.sh — read-only JSON API for scripts and the XML dashboard
 # GET /cgi-bin/api.sh?action=status&token=<WEBHOOK_SECRET>
 #
 # Actions: status | logs | sync | state | config
@@ -10,6 +10,7 @@ _HB="$(dirname "$0")/.."
 . "$_HB/etc/config.sh"
 . "$_HB/lib/log.sh"
 . "$_HB/lib/auth.sh"
+. "$_HB/lib/stats.sh"   # gauges shared with the XML dashboard (cgi-bin/web.sh)
 
 # ---- auth (same shared secret as the webhooks) ----
 # The token is read from the X-Ayu-Token header when present: a secret in the
@@ -39,34 +40,9 @@ _which="$(auth_query_param "${QUERY_STRING:-}" which)"
 case "$_lines" in ''|*[!0-9]*) _lines=80 ;; esac
 [ "$_lines" -gt 500 ] && _lines=500
 
-# _kb <dir> — size in KB (0 when missing)
-_api_kb() {
-	_kc="/tmp/ayu-kb.$(printf '%s' "$1" | tr '/ ' '__')"
-	if [ -f "$_kc" ] && [ -n "$(find "$_kc" -mmin -1 2>/dev/null)" ]; then
-		cat "$_kc"
-		return 0
-	fi
-	_k="$(du -sk "$1" 2>/dev/null | awk '{print $1}')"
-	printf '%s' "${_k:-0}" > "$_kc" 2>/dev/null
-	printf '%s' "${_k:-0}"
-}
-
-# _count <dir> — number of files, recursively (msg maps are sharded per chat)
-# The webui polls status every 5 s and the maps hold ~16k files, so a full
-# find on every poll is pure waste. Cache the count per directory for 60 s
-# (the cache file's mtime is the timestamp, kept in /tmp because it is
-# regenerable). A minute of staleness is fine: this is a gauge, not a
-# control value.
-_api_count() {
-	_cc="/tmp/ayu-count.$(printf '%s' "$1" | tr '/ ' '__')"
-	if [ -f "$_cc" ] && [ -n "$(find "$_cc" -mmin -1 2>/dev/null)" ]; then
-		cat "$_cc"
-		return 0
-	fi
-	_c="$(find "$1" -type f 2>/dev/null | wc -l)"
-	printf '%s' "${_c:-0}" > "$_cc" 2>/dev/null
-	printf '%s' "${_c:-0}"
-}
+# Sizes and counts live in lib/stats.sh: the XML dashboard prints the same
+# gauges, and duplicating the /tmp caching here would let the JSON and the
+# page disagree. See stats_kb / stats_count.
 
 # _bool <value> → true/false
 _api_bool() {
@@ -84,18 +60,9 @@ _api_mask() {
 }
 
 _api_status() {
-	_uptime="$(awk '{printf "%d", $1}' /proc/uptime 2>/dev/null)"
-	_started="$(cat "$_HB/var/state/started-at" 2>/dev/null)"
-	_bot_sz="$(wc -c < "$_LOG_DIR/bot.log" 2>/dev/null)"
-	_err_sz="$(wc -c < "$_LOG_DIR/error.log" 2>/dev/null)"
-	_cron_sz="$(wc -c < "$_LOG_DIR/cron.log" 2>/dev/null)"
-	_maps="$(_api_count "$_STATE_DIR/msg-map")"
-	_revs="$(_api_count "$_STATE_DIR/msg-map-rev")"
-	# per-platform mapping counts
-	_qq_g="$(find "$_STATE_DIR/msg-map" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)"
 	printf '{'
-	printf '"uptime_s":%s,' "${_uptime:-0}"
-	printf '"started_at":%s,' "$(json_escape "$_started")"
+	printf '"uptime_s":%s,' "$(stats_uptime)"
+	printf '"started_at":%s,' "$(json_escape "$(stats_started_at)")"
 	printf '"host":%s,' "$(json_escape "${BOT_HOST}")"
 	printf '"port":%s,' "${BOT_PORT:-0}"
 	printf '"platforms":{"qq":%s,"telegram":%s,"discord":%s},' \
@@ -106,18 +73,19 @@ _api_status() {
 		"$(_api_bool "${WEBHOOK_SECRET:-}")" \
 		"$(_api_bool "${TG_API_SECRET:-}")"
 	printf '"logs":{"bot":%s,"error":%s,"cron":%s,"dir_kb":%s},' \
-		"${_bot_sz:-0}" "${_err_sz:-0}" "${_cron_sz:-0}" "$(_api_kb "$_LOG_DIR")"
+		"$(stats_log_bytes bot)" "$(stats_log_bytes error)" "$(stats_log_bytes cron)" \
+		"$(stats_kb "$_LOG_DIR")"
 	printf '"state":{"msg_map":%s,"msg_map_rev":%s,"groups":%s,"dir_kb":%s},' \
-		"$_maps" "$_revs" "${_qq_g:-0}" "$(_api_kb "$_STATE_DIR")"
+		"$(stats_count "$_STATE_DIR/msg-map")" \
+		"$(stats_count "$_STATE_DIR/msg-map-rev")" \
+		"$(stats_groups)" "$(stats_kb "$_STATE_DIR")"
 	printf '"media":{"cache_kb":%s,"cache_files":%s},' \
-		"$(_api_kb /tmp/img)" "$(_api_count /tmp/img)"
+		"$(stats_kb /tmp/img)" "$(stats_count /tmp/img)"
 	printf '"maintenance":{"last_run":%s},' \
-		"$(json_escape "$(grep -o 'maint: .*done.*' "$_LOG_DIR/bot.log" 2>/dev/null | tail -1)")"
+		"$(json_escape "$(stats_maint_last)")"
 	# events dropped by router.sh (handler failures). Non-zero means platforms
 	# are being retried into a wall — visible here instead of only in the log.
-	_fail_n="$(wc -l < "$_STATE_DIR/failures" 2>/dev/null | tr -d ' ')"
-	case "$_fail_n" in ''|*[!0-9]*) _fail_n=0 ;; esac
-	printf '"events":{"dropped":%s}' "$_fail_n"
+	printf '"events":{"dropped":%s}' "$(stats_dropped)"
 	printf '}'
 }
 
@@ -143,19 +111,20 @@ _api_logs() {
 _api_sync() {
 	printf '{"pairs":['
 	_first=1
-	[ -f "${_SYNC_CONF:-$_HB/etc/sync.conf}" ] && while IFS= read -r _line; do
-		case "$_line" in \#*|"") continue ;; esac
-		_s="${_line%%=*}" _t="${_line#*=}"
-		[ -z "$_s" ] && continue
-		if [ "$_first" = "1" ]; then _first=0; else printf ','; fi
-		printf '{"source":%s,"target":%s,"targets":[' "$(json_escape "$_s")" "$(json_escape "$_t")"
-		_tf=1
-		for _one in $(printf '%s' "$_t" | tr ',' ' '); do
-			if [ "$_tf" = "1" ]; then _tf=0; else printf ','; fi
-			printf "%s" "$(json_escape "$_one")"
+	_sp="$(stats_sync_pairs)"
+	if [ -n "$_sp" ]; then
+		_sp_tab="$(printf '\t')"
+		printf '%s\n' "$_sp" | while IFS="$_sp_tab" read -r _s _t; do
+			if [ "$_first" = "1" ]; then _first=0; else printf ','; fi
+			printf '{"source":%s,"target":%s,"targets":[' "$(json_escape "$_s")" "$(json_escape "$_t")"
+			_tf=1
+			for _one in $(printf '%s' "$_t" | tr ',' ' '); do
+				if [ "$_tf" = "1" ]; then _tf=0; else printf ','; fi
+				printf "%s" "$(json_escape "$_one")"
+			done
+			printf ']}'
 		done
-		printf ']}'
-	done < "${_SYNC_CONF:-$_HB/etc/sync.conf}"
+	fi
 	printf ']}'
 }
 

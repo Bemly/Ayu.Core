@@ -58,11 +58,12 @@ Ayu.Core/
 │   └── discord/            # Discord — 19 文件, 143 个函数 (REST + webhook)
 ├── plugin/                 # 业务插件
 │   └── sync/               # 跨平台同步 (QQ/QQBot/TG/DC) + dc-sync.sh (crond 定时入口)
-├── webui/                  # 面板（原生 HTML/CSS/JS，数据来自 cgi-bin/api.sh）
+├── index.xml               # 入口文档——指向 XML 面板
+├── webui/                  # 仅 README 头图用的 logo；面板本身全靠 CSS 绘制
 ├── etc/                    # config, rules, crontab, sync.conf, README
 ├── hush-json/              # submodule — POSIX sh 实现的 JSON
 ├── hush-ed25519/           # submodule — shell + busybox awk 实现的 Ed25519 签名/验签
-└── test/                   # 422 tests, 0 failures (mock_http, 无需 API key)
+└── test/                   # 486 tests, 0 failures (mock_http, 无需 API key)
 ```
 
 ## 快速开始
@@ -384,7 +385,7 @@ docker run --rm -v $(pwd):/ayu busybox:musl hush -c "
 "
 ```
 
-**422 tests, 0 failures。**
+**486 tests, 0 failures。**
 
 | 套件 | 文件 | 用例 |
 | --- | --- | --- |
@@ -416,9 +417,22 @@ qqbot 的 138 条拆开是：`test_qqbot.sh` 45（webhook 入口、op=13、op=0 
 - **JSON 转义** — 只解析 `\"` `\\`，`\uXXXX` 通过 `utf8_decode` 额外处理
 - **$() 禁忌** — 设置 `_ERROR` 的函数不能放 subshell
 
-## 面板（webui）
+## 面板（XML + CSS）
 
-`webui/` 是零依赖面板（原生 HTML/CSS/JS），由同一个 httpd 提供，数据来自只读 JSON API：
+面板是一份 XML 文档加一份样式表，两者都由 `cgi-bin/web.sh` 生成。没有 HTML 页面、
+没有 JavaScript、没有外部资源：浏览器收到的是 `text/xml` 和一条
+`<?xml-stylesheet type="text/css"?>` 指令。
+
+| 接口 | 用途 |
+|---|---|
+| `/cgi-bin/web.sh` | 面板本体——概览、同步映射、日志尾部、配置同页渲染 |
+| `/cgi-bin/web.sh?page=overview\|sync\|logs\|config` | 高亮某一节 |
+| `/cgi-bin/web.sh?logs=bot\|error\|cron&lines=N` | 选择日志尾部（1–300 行） |
+| `/cgi-bin/web.sh?css=1` | 样式表（需认证——其中内嵌命令 nonce） |
+| `/cgi-bin/act.sh?n=<nonce>&op=pause\|resume` | 暂停/恢复自动刷新，唯一的写入口 |
+| `POST /cgi-bin/web.sh`，body 为 `token=<密钥>` | 登录（303 + `ayu` Cookie） |
+
+只读 JSON API（`/cgi-bin/api.sh`）保持不变，脚本仍可直接调用：
 
 | 接口 | 用途 |
 |---|---|
@@ -427,7 +441,26 @@ qqbot 的 138 条拆开是：`test_qqbot.sh` 45（webhook 入口、op=13、op=0 
 | `/cgi-bin/api.sh?action=sync` | 已配置的同步映射 |
 | `/cgi-bin/api.sh?action=config` | 非敏感配置（密钥仅显示是否已配置） |
 
-设了 `WEBHOOK_SECRET` 时需带 `&token=<WEBHOOK_SECRET>`；前端只存在 `sessionStorage`，不落盘、不回显。
+设了 `WEBHOOK_SECRET` 时需带 `&token=<WEBHOOK_SECRET>` 或 `X-Ayu-Token` 头；响应里的密钥一律只显示是否已配置。
+
+### 为什么是 XML，代价在哪
+
+选 XML 不是换皮。XML 文档是"数据 + 样式表"，面板没有地方藏逻辑，表现层只能待在一个文件里。
+代价集中在四处，全部在 Chromium 里实测过，不是推测：
+
+- **`class` 没有语义。** 没有 HTML 解析器赋予它含义，`.foo` 选择器会静默不匹配。
+  样式表只用元素名和 `[attr="value"]` 选择器——见 `lib/render.sh`，
+  `test/test_web.sh` 会拦住偷偷混回来的 `.class` 选择器。
+- **没有表单控件。** `<a>` 不是链接，`<input>` 不是输入框，点击不会提交任何东西。
+  所以登录走带外命令（`curl -X POST -d token=…`），导航靠 URL。唯一可点的是
+  pad 元素的 `:active` 状态去加载一张带 nonce 的 CSS 背景图——那次请求就是"点击"。
+- **没有 `<meta http-equiv="refresh">`。** 自动刷新靠 HTTP `Refresh:` 头：正常 5 秒，
+  暂停时 30 秒（否则恢复点击在浏览器里永远看不到效果）。
+- **3D 全是 CSS。** 每个方块六张面在 `perspective` + `preserve-3d` + `@keyframes`
+  下旋转，参照 CSS-Minecraft；鼠标悬停会冻结旋转。
+
+认证不变：密钥只在 POST body 里传递，成功后下发 `ayu=<sha256(密钥)>` 的 HttpOnly Cookie；
+`prod` 环境缺少 `WEBHOOK_SECRET` 时返回 503，而不是把面板敞开。
 
 ## 维护清理
 
