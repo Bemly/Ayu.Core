@@ -419,6 +419,9 @@ qqbot 的 138 条拆开是：`test_qqbot.sh` 45（webhook 入口、op=13、op=0 
 
 ## 面板（XML + CSS）
 
+| ![面板总览](img/dashboard-overview.png) | ![日志与配置](img/dashboard-logs.png) |
+|:-:|:-:|
+
 面板是一份 XML 文档加一份样式表，两者都由 `cgi-bin/web.sh` 生成。没有 HTML 页面、
 没有 JavaScript、没有外部资源：浏览器收到的是 `text/xml` 和一条
 `<?xml-stylesheet type="text/css"?>` 指令。
