@@ -7,6 +7,7 @@
 #   GET  /cgi-bin/web.sh?css=1               the panel stylesheet (text/css)
 #   GET  /cgi-bin/web.sh?css=gate            the gate stylesheet (text/css)
 #   POST /cgi-bin/web.sh  token=<secret>     verify, Set-Cookie, 303
+#   GET  /cgi-bin/web.sh?token=<secret>      same check, for the address bar
 #   GET  /cgi-bin/web.sh?logout=1            drop the cookie
 #
 # Why XML and not HTML: the document is data plus one stylesheet reference. The
@@ -18,15 +19,19 @@
 #   * `.class` selectors never match in an XML document, so the sheet is built
 #     from element names and attribute selectors only (see lib/render.sh).
 #   * <a> is not a link and <input> is not a control. There is no way to submit
-#     a form, so sign-in happens out of band (curl POST, see the gate text) and
-#     navigation is by URL. The only in-page writable channels are the pads,
+#     a form, and CSS has no persistent state to hold typed characters (only the
+#     momentary :active), so sign-in cannot live inside the page: the browser
+#     gets a paste-able URL (GET ?token=) and scripts get a POST. Navigation is
+#     by URL. The only in-page writable channels are the pads,
 #     which fire one CSS background-image request on mouse-down (cgi-bin/act.sh)
 #     and are limited to pause/resume of this page's own auto-refresh.
 #   * auto-refresh cannot use <meta http-equiv>: it is an HTTP `Refresh:` header.
 #
-# Auth is unchanged from the HTML version: the token only ever travels in a POST
-# body, success sets ayu=<sha256(token)> as an HttpOnly cookie, and the digest is
-# what gets compared, so the plaintext secret never sits in the browser.
+# Auth is unchanged from the HTML version: success sets ayu=<sha256(token)> as an
+# HttpOnly cookie, so the plaintext secret never sits in the browser. Two entry
+# points: POST body (scripts, out of the address bar and access log) and GET
+# ?token= (browsers, no shell needed — httpd runs without -v, so request lines
+# are not logged either way).
 
 _HB="$(cd "$(dirname "$0")/.." && pwd)"
 . "$_HB/lib/core.sh"
@@ -153,6 +158,27 @@ if [ "${REQUEST_METHOD:-GET}" = "POST" ]; then
 	log_warn "web: rejected a login attempt"
 fi
 
+# --- login by URL parameter ----------------------------------------------
+# A browser cannot POST from an XML document: there is no <form>, <input> is
+# not a field, and CSS has no persistent state to hold typed characters (only
+# the momentary :active). So the second entry point is a plain GET the user
+# pastes into the address bar — no shell required. httpd runs without -v, so
+# request lines never reach the access log and the token stays out of it.
+if [ "${REQUEST_METHOD:-GET}" = "GET" ] && [ -z "$_web_err" ]; then
+	_web_tok_url="$(url_decode "$(auth_query_param "$_QS" token)")"
+	if [ -n "$_web_tok_url" ]; then
+		if [ -n "$_web_sec" ] && [ "$_web_tok_url" = "$_web_sec" ]; then
+			printf 'Status: 303 See Other\r\nLocation: /cgi-bin/web.sh?page=all\r\n'
+			printf 'Cache-Control: no-store\r\n'
+			printf 'Set-Cookie: ayu=%s; Path=/; HttpOnly; SameSite=Strict\r\n\r\n' "$_web_hash"
+			log_info "web: session opened via url"
+			exit 0
+		fi
+		_web_err="密钥错误"
+		log_warn "web: rejected a url login"
+	fi
+fi
+
 # --- refusal / gate documents -------------------------------------------
 
 # Fail closed when a prod tree lost its secret: an open dashboard is worse than
@@ -174,6 +200,10 @@ fi
 
 _web_gate() {
 	_web_hdr 30 "/cgi-bin/web.sh"
+	# Prefer the Host the browser actually used; fall back to the bind address.
+	_web_origin=""
+	[ -n "${HTTP_HOST:-}" ] && _web_origin="http://$HTTP_HOST"
+	[ -n "$_web_origin" ] || _web_origin="http://${BOT_HOST:-127.0.0.1}:${BOT_PORT:-6160}"
 	printf '<?xml version="1.0" encoding="UTF-8"?>\n'
 	printf '<?xml-stylesheet type="text/css" href="/cgi-bin/web.sh?css=gate"?>\n'
 	printf '<panel>\n<bar><brand>Ayu <dim>Console</dim></brand>'
@@ -183,15 +213,19 @@ _web_gate() {
 	if [ -n "$_web_err" ]; then
 		printf '<kv k="上一次尝试"><v>%s</v></kv>\n' "$(render_esc "$_web_err")"
 	fi
-	printf '<note>这个面板不是 HTML，也没有表单控件：XML 文档里的 input 不是输入框，'\
-'浏览器不会给它任何交互行为。所以登录用一条命令完成，密钥只走 POST body，'\
-'不会进入地址栏或访问日志。</note>\n'
+	printf '<note>这个面板是 XML 文档，不是 HTML：没有 &lt;form&gt;，&lt;input&gt; 也不是输入框，'\
+'CSS 又不保存状态（只有瞬间的 :active），所以页内没法做输入框。登录因此有两条路，'\
+'都不需要进容器。</note>\n'
+	printf '<kv k="方式一"><v>浏览器地址栏粘贴一行地址，回车即登录</v></kv>\n'
+	printf '<code>%s/cgi-bin/web.sh?token=你的WEBHOOK_SECRET</code>\n' \
+		"$(render_esc "$_web_origin")"
+	printf '<note>密钥含 &amp; + # 等字符时先做 URL 编码（%%26 %%2B %%23）；成功后自动跳转到面板，'\
+'地址栏那行会留在浏览器历史里，公共机器用完请清一下。</note>\n'
+	printf '<kv k="方式二"><v>本机一条 curl 命令，密钥只走 POST body</v></kv>\n'
 	printf '<code>curl -s -X POST -d "token=$WEBHOOK_SECRET" \\\n'\
-'  http://%s:%s/cgi-bin/web.sh -c ayu.txt -o /dev/null\n'\
-'# 然后把 ayu.txt 里的 ayu Cookie 交给浏览器，或直接用 curl 读取面板：\n'\
-'curl -s -b ayu.txt http://%s:%s/cgi-bin/web.sh</code>\n' \
-		"$(render_esc "${BOT_HOST:-127.0.0.1}")" "$(render_esc "${BOT_PORT:-6160}")" \
-		"$(render_esc "${BOT_HOST:-127.0.0.1}")" "$(render_esc "${BOT_PORT:-6160}")"
+'  %s/cgi-bin/web.sh -c ayu.txt -o /dev/null\n'\
+'curl -s -b ayu.txt %s/cgi-bin/web.sh</code>\n' \
+		"$(render_esc "$_web_origin")" "$(render_esc "$_web_origin")"
 	printf '<note>本页每 30 秒自动重试；拿到 Cookie 后无需操作，刷新即进入。</note>\n'
 	printf '</card></sheet>\n'
 	render_foot "Ayu.Core · xml dashboard"

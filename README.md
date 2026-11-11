@@ -439,7 +439,8 @@ There is no HTML page, no JavaScript and no external asset: the browser receives
 | `/cgi-bin/web.sh?logs=bot\|error\|cron&lines=N` | choose the log tail (1–300 lines) |
 | `/cgi-bin/web.sh?css=1` | the stylesheet (authenticated — it embeds a command nonce) |
 | `/cgi-bin/act.sh?n=<nonce>&op=pause\|resume` | pause/resume auto-refresh — the only write |
-| `POST /cgi-bin/web.sh` with `token=<secret>` | sign in (303 + `ayu` cookie) |
+| `POST /cgi-bin/web.sh` with body `token=<secret>` | sign in from a script (303 + `ayu` cookie) |
+| `GET /cgi-bin/web.sh?token=<secret>` | sign in from the address bar (same check, 303 + cookie) |
 
 The read-only JSON API (`/cgi-bin/api.sh`) is unchanged and still available to scripts:
 
@@ -463,8 +464,10 @@ The bill comes due in four places, all measured in Chromium rather than assumed:
   selectors only — see `lib/render.sh`, and `test/test_web.sh` guards against a
   `.class` selector creeping back in.
 - **No form controls.** `<a>` is not a link, `<input>` is not a field, and a click
-  submits nothing. Sign-in is therefore out of band (`curl -X POST -d token=…`) and
-  navigation is by URL. The one clickable surface is a pad whose `:active` state
+  submits nothing; CSS keeps no state either, only the momentary `:active`, so typed
+  characters cannot be accumulated. Sign-in therefore cannot live inside the page:
+  browsers paste `?token=<secret>` into the address bar, scripts POST the body.
+  Navigation is by URL. The one clickable surface is a pad whose `:active` state
   loads a CSS background image carrying a nonce — that request *is* the click.
 - **No `<meta http-equiv="refresh">`.** Auto-refresh is the HTTP `Refresh:` header:
   5 s normally, 30 s while paused (so the resume click can still be observed).
@@ -472,8 +475,10 @@ The bill comes due in four places, all measured in Chromium rather than assumed:
   `preserve-3d` + `@keyframes` rotation, after CSS-Minecraft. Hovering a block
   freezes it.
 
-Auth is unchanged: the token travels only in a POST body, success sets
-`ayu=<sha256(token)>` as an HttpOnly cookie, and a `prod` tree without
+Auth: success sets `ayu=<sha256(token)>` as an HttpOnly cookie, so the plaintext
+secret never sits in the browser. Two entry points — POST body for scripts, GET
+`?token=` for browsers (httpd runs without `-v`, so request lines are not logged
+either way; the pasted URL does stay in browser history). A `prod` tree without
 `WEBHOOK_SECRET` answers 503 instead of serving an open panel.
 
 ## Maintenance

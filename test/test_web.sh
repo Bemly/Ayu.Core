@@ -164,6 +164,16 @@ test_web_login_sets_digest_cookie() {
 	assert_not_contains "$_out" 'token=right-secret' "secret is not echoed back"
 }
 
+test_web_url_token_signin() {
+	_out="$(_web_get_sec 'right-secret' '' 'token=right-secret')"
+	assert_contains "$_out" '303 See Other' "url token redirects"
+	assert_contains "$_out" "Set-Cookie: ayu=$(_web_sha 'right-secret')" "url token sets the digest cookie"
+	assert_not_contains "$_out" 'token=right-secret' "url token is not echoed back"
+	_bad="$(_web_get_sec 'right-secret' '' 'token=nope')"
+	assert_contains "$_bad" '密钥错误' "wrong url token reports an error"
+	assert_not_contains "$_bad" 'Set-Cookie: ayu=' "wrong url token sets no cookie"
+}
+
 test_web_cookie_auth() {
 	_out="$(_web_get_sec 'right-secret' "$(_web_sha 'right-secret')" 'page=config')"
 	assert_contains "$_out" '运行配置' "authed cookie renders the panel"
@@ -198,6 +208,7 @@ test_web_act_rejects_unknown_nonce_and_op
 test_web_gate_hides_panel
 test_web_wrong_token_rejected
 test_web_login_sets_digest_cookie
+test_web_url_token_signin
 test_web_cookie_auth
 test_web_logout_drops_cookie
 test_web_prod_without_secret_refuses

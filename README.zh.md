@@ -430,7 +430,8 @@ qqbot 的 138 条拆开是：`test_qqbot.sh` 45（webhook 入口、op=13、op=0 
 | `/cgi-bin/web.sh?logs=bot\|error\|cron&lines=N` | 选择日志尾部（1–300 行） |
 | `/cgi-bin/web.sh?css=1` | 样式表（需认证——其中内嵌命令 nonce） |
 | `/cgi-bin/act.sh?n=<nonce>&op=pause\|resume` | 暂停/恢复自动刷新，唯一的写入口 |
-| `POST /cgi-bin/web.sh`，body 为 `token=<密钥>` | 登录（303 + `ayu` Cookie） |
+| `POST /cgi-bin/web.sh`，body 为 `token=<密钥>` | 脚本登录（303 + `ayu` Cookie） |
+| `GET /cgi-bin/web.sh?token=<密钥>` | 浏览器地址栏登录（同一校验，303 + Cookie） |
 
 只读 JSON API（`/cgi-bin/api.sh`）保持不变，脚本仍可直接调用：
 
@@ -451,16 +452,19 @@ qqbot 的 138 条拆开是：`test_qqbot.sh` 45（webhook 入口、op=13、op=0 
 - **`class` 没有语义。** 没有 HTML 解析器赋予它含义，`.foo` 选择器会静默不匹配。
   样式表只用元素名和 `[attr="value"]` 选择器——见 `lib/render.sh`，
   `test/test_web.sh` 会拦住偷偷混回来的 `.class` 选择器。
-- **没有表单控件。** `<a>` 不是链接，`<input>` 不是输入框，点击不会提交任何东西。
-  所以登录走带外命令（`curl -X POST -d token=…`），导航靠 URL。唯一可点的是
+- **没有表单控件。** `<a>` 不是链接，`<input>` 不是输入框，点击不会提交任何东西；
+  CSS 也不保存状态（只有瞬间的 `:active`），输入字符无法累积。所以登录没法待在页面里：
+  浏览器把 `?token=<密钥>` 粘到地址栏，脚本走 POST body。导航靠 URL。唯一可点的是
   pad 元素的 `:active` 状态去加载一张带 nonce 的 CSS 背景图——那次请求就是"点击"。
 - **没有 `<meta http-equiv="refresh">`。** 自动刷新靠 HTTP `Refresh:` 头：正常 5 秒，
   暂停时 30 秒（否则恢复点击在浏览器里永远看不到效果）。
 - **3D 全是 CSS。** 每个方块六张面在 `perspective` + `preserve-3d` + `@keyframes`
   下旋转，参照 CSS-Minecraft；鼠标悬停会冻结旋转。
 
-认证不变：密钥只在 POST body 里传递，成功后下发 `ayu=<sha256(密钥)>` 的 HttpOnly Cookie；
-`prod` 环境缺少 `WEBHOOK_SECRET` 时返回 503，而不是把面板敞开。
+认证：成功后下发 `ayu=<sha256(密钥)>` 的 HttpOnly Cookie，明文密钥不留在浏览器。
+两个入口——POST body 给脚本，GET `?token=` 给浏览器（httpd 不带 `-v`，请求行不进日志；
+但粘贴过的 URL 会留在浏览器历史里）。`prod` 环境缺少 `WEBHOOK_SECRET` 时返回 503，
+而不是把面板敞开。
 
 ## 维护清理
 
