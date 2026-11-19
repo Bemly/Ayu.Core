@@ -301,6 +301,15 @@ http_post_file() {
 	_http_raw POST "$_hurl" "$_hfile" "$@"
 }
 
+# http_put_file <url> <file> [header...]
+# Binary PUT straight from disk — used for the presigned COS upload URLs of the
+# chunked-file and media-image flows, where the body can be megabytes and must
+# not be read into a shell variable.
+http_put_file() {
+	_hurl="$1" _hfile="$2"; shift 2
+	_http_raw PUT "$_hurl" "$_hfile" "$@"
+}
+
 # http_delete <url> [body] [header...]
 http_delete() {
 	_hurl="$1" _hdata="${2:-{}}"; shift 2

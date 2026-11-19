@@ -15,6 +15,8 @@
 . "$_HB/adapter/qqbot/sign.sh"
 . "$_HB/adapter/qqbot/message.sh"
 . "$_HB/adapter/qqbot/admin.sh"
+. "$_HB/adapter/qqbot/richtext.sh"
+. "$_HB/adapter/qqbot/upload.sh"
 
 QQBOT_DEDUP_FILE="${QQBOT_DEDUP_FILE:-${_STATE_DIR:-$_HB/var/state}/qqbot-dedup}"
 QQBOT_DEDUP_MAX="${QQBOT_DEDUP_MAX:-500}"
@@ -221,42 +223,8 @@ qqbot_attachments_text() {
 	done
 }
 
-# qqbot_render_content <text> [group_openid]
-# QQ official message content is markdown-ish: mentions are `<@OPENID>` and
-# emoji are `<faceType=4,faceId="",ext="<base64 json>">`. Both are unreadable
-# in a relayed line (a 32-char openid plus a base64 blob per message), so
-# mentions render as `@<platform nickname>` or `@qq#<first7>`, and faces as
-# their `text` field. The nickname comes from `author.username`, cached per
-# group by adapter/qqbot/admin.sh — there is no hand-maintained binding table.
-qqbot_render_content() {
-	_qrc_t="$1" _qrc_gid="$2"
-	_qrc_at="$(printf '%s' "$_qrc_t" | grep -o '<@[A-Za-z0-9!]\{8,\}>' | sed 's/^<@//; s/>$//; s/^!//' | sort -u)"
-	for _qrc_o in $_qrc_at; do
-		_qrc_s="$(printf '%s' "$_qrc_o" | cut -c1-7)"
-		_qrc_n=""
-		[ -n "$_qrc_gid" ] && _qrc_n="$(qqbot_nick_auto_get "$_qrc_gid" "$_qrc_o")"
-		if [ -n "$_qrc_n" ]; then
-			_qrc_lbl="@$_qrc_n"
-		else
-			_qrc_lbl="@qq#$_qrc_s"
-		fi
-		# sed replacement side: escape \ & and the | delimiter
-		_qrc_lbl="$(printf '%s' "$_qrc_lbl" | sed 's/[\\&|]/\\&/g')"
-		_qrc_t="$(printf '%s' "$_qrc_t" | sed "s/<@!\{0,1\}$_qrc_o>/$_qrc_lbl/g")"
-	done
-	_qrc_ext="$(printf '%s' "$_qrc_t" | grep -o 'ext="[A-Za-z0-9+/=]*"' | sed 's/^ext="//; s/"$//' | sort -u)"
-	for _qrc_b in $_qrc_ext; do
-		_qrc_x="$(printf '%s' "$_qrc_b" | base64 -d 2>/dev/null | sed 's/.*"text":"//; s/"}.*//' | tr -d '\n')"
-		[ -n "$_qrc_x" ] || continue
-		# replacement side of sed: '\\', '&' and the '|' delimiter must be
-		# escaped, otherwise "A&B" loses the & and "A|B" breaks the expression
-		_qrc_x="$(printf '%s' "$_qrc_x" | sed 's/[\\&|]/\\&/g')"
-		_qrc_t="$(printf '%s' "$_qrc_t" | sed "s|<faceType=[^>]*ext=\"$_qrc_b\"[^>]*>|$_qrc_x|g")"
-	done
-	# faces without a decodable ext (or any leftover tag) are dropped
-	_qrc_t="$(printf '%s' "$_qrc_t" | sed 's|<faceType=[^>]*>||g; s|<@[A-Za-z0-9!]\{8,\}>||g')"
-	printf '%s' "$_qrc_t"
-}
+# qqbot_render_content lives in richtext.sh (sourced below) — it also renders
+# the text-chain tags (<qqbot-at-user/>, <qqbot-at-everyone />, cmd-enter ...).
 
 # qqbot_message_text <d> [group_openid] — content plus the attachment text view
 #
@@ -270,6 +238,17 @@ qqbot_message_text() {
 	case "$_qmt_c" in NOTFOUND|null) _qmt_c="" ;; esac
 	[ -n "$_qmt_c" ] && _qmt_c="$(utf8_decode "$_qmt_c")"
 	_qmt_c="$(qqbot_render_content "$_qmt_c" "$2")"
+	# 结构化卡片（message_type=3）与引用消息（103）没有 content，摊平成可读文本
+	if [ -z "$_qmt_c" ]; then
+		_qmt_ark="$(json_get "$1" ark_data 2>/dev/null)" || _qmt_ark=""
+		case "$_qmt_ark" in ''|NOTFOUND|null) _qmt_ark="" ;; esac
+		[ -n "$_qmt_ark" ] && _qmt_c="$(qqbot_render_ark "$_qmt_ark")"
+	fi
+	if [ -z "$_qmt_c" ]; then
+		_qmt_me="$(json_get "$1" msg_elements 2>/dev/null)" || _qmt_me=""
+		case "$_qmt_me" in ''|NOTFOUND|null) _qmt_me="" ;; esac
+		[ -n "$_qmt_me" ] && _qmt_c="$(qqbot_render_msg_elements "$_qmt_me")"
+	fi
 	printf '%s' "$_qmt_c$(qqbot_attachments_text "$1")"
 }
 
@@ -329,8 +308,35 @@ qqbot_handle_event() {
 			dispatch "qqbot" "direct_message" "$_qh_uid" "$_qh_txt" "$_qh_d"
 			;;
 		INTERACTION_CREATE)
-			_qh_uid="$(json_get "$_qh_d" id 2>/dev/null)" || _qh_uid=""
-			dispatch "qqbot" "interaction" "$_qh_uid" "interaction:$_qh_t" "$_qh_d"
+			# 按钮回调必须在 3 秒内 PUT 回应，且同一 interaction 只能回一次，
+			# 否则客户端一直转圈。默认先回 code=0，再交给规则处理器做业务
+			# （处理器若要用别的 code，就自己回，并用 QQBOT_INTERACTION_AUTOACK=0 关掉）。
+			# 官方只要求 type=11(消息按钮)/12(快捷菜单) 回应；13 反馈、14 清空会话、
+			# 15/16/18/19/20 等无需回应——给 14 回 code=0 会让 QQ 误发"会话已清空"
+			# 小灰条，所以这里按 type 拦住，不是 11/12 一律不自动 ACK。
+			_qh_iid="$(json_get "$_qh_d" id 2>/dev/null)" || _qh_iid=""
+			_qh_itype="$(json_get "$_qh_d" type 2>/dev/null)" || _qh_itype=""
+			[ -n "$_qh_itype" ] || _qh_itype="$(json_get "$(json_get "$_qh_d" data 2>/dev/null)" type 2>/dev/null)" || _qh_itype=""
+			_qh_iscene="$(json_get "$_qh_d" scene 2>/dev/null)" || _qh_iscene=""
+			_qh_ict="$(json_get "$_qh_d" chat_type 2>/dev/null)" || _qh_ict=""
+			_qh_igid="$(json_get "$_qh_d" group_openid 2>/dev/null)" || _qh_igid=""
+			_qh_imem="$(json_get "$_qh_d" group_member_openid 2>/dev/null)" || _qh_imem=""
+			_qh_iuser="$(json_get "$_qh_d" user_openid 2>/dev/null)" || _qh_iuser=""
+			log_info "qqbot: interaction type=${_qh_itype:-?} scene=${_qh_iscene:-?}/${_qh_ict:-?} id=$_qh_iid"
+			case "$_qh_itype" in
+				11|12)
+					if [ "${QQBOT_INTERACTION_AUTOACK:-1}" = "1" ] && [ -n "$_qh_iid" ]; then
+						if qqbot_interaction_ack "$_qh_iid" 0 >/dev/null 2>&1; then
+							log_info "qqbot: interaction $_qh_iid acked"
+						else
+							log_warn "qqbot: interaction $_qh_iid ack failed: $_ERROR"
+						fi
+					fi
+					;;
+				*) log_debug "qqbot: interaction type=${_qh_itype:-?} needs no ack" ;;
+			esac
+			# 回复被动消息用 event_id（= 事件 id），不含 "INTERACTION_CREATE:" 前缀
+			dispatch "qqbot" "interaction" "${_qh_imem:-$_qh_iuser}" "interaction:$_qh_t" "$_qh_d"
 			;;
 		MESSAGE_REACTION_ADD|MESSAGE_REACTION_REMOVE|MESSAGE_REACTION_REMOVE_ALL)
 			_qh_uid="$(json_get "$_qh_d" user_id 2>/dev/null)" || _qh_uid=""

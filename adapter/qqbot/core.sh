@@ -194,6 +194,96 @@ _qqbot_api_body() {
 	printf '%s' "$_qabj"
 }
 
+# _qqbot_joinit <current> <fragment> — comma-join a JSON object body.
+# The message bodies are assembled field by field so empty optional fields are
+# left out entirely instead of being sent as "" (the platform validates types).
+_qqbot_joinit() {
+	if [ -n "${1:-}" ]; then
+		printf '%s,%s' "$1" "$2"
+	else
+		printf '%s' "$2"
+	fi
+}
+
+# _qqbot_call <METHOD> <path> [body] [tag]
+# Same contract as _qqbot_api, but the caller runs it without $(...): the
+# response body lands in $_QQBOT_CALL_OUT and every failure field (including
+# the body digest) in $_QQBOT_CALL_ERR, because a subshell cannot assign
+# _ERROR back to the parent. Bodies that contain base64 (>5MB media) must go
+# through _qqbot_api_body instead.
+_qqbot_call() {
+	_qqc_m="$1" _qqc_p="$2" _qqc_b="${3:-}" _qqc_tag="${4:-qqbot.call}"
+	_QQBOT_CALL_OUT="" _QQBOT_CALL_ERR=""
+	_qqc_f="/tmp/qqbot-call.$$"
+	_qqbot_do "$_qqc_m" "$_qqc_p" "$_qqc_b" >"$_qqc_f" 2>/dev/null
+	_qqc_rc=$?
+	_qqc_j="$(cat "$_qqc_f" 2>/dev/null)"
+	rm -f "$_qqc_f"
+	if [ $_qqc_rc -ne 0 ]; then
+		_QQBOT_CALL_ERR="$_qqc_tag: transport failed (status ${_HTTP_STATUS:-none})"
+		_ERROR="$_QQBOT_CALL_ERR"
+		_qqbot_note_err "$_ERROR"
+		return 1
+	fi
+	_qqc_c="$(json_get "$_qqc_j" code 2>/dev/null)" || _qqc_c=""
+	if [ -n "$_qqc_c" ] && [ "$_qqc_c" != "0" ]; then
+		_QQBOT_CALL_ERR="$_qqc_tag: code=$_qqc_c msg=$(json_get "$_qqc_j" message 2>/dev/null) status=${_HTTP_STATUS:-none} body=$(_qqbot_resp_digest "$_qqc_j")"
+		_ERROR="$_QQBOT_CALL_ERR"
+		_qqbot_notify_retry "$_qqc_c"
+		_qqbot_note_err "$_ERROR"
+		return 1
+	fi
+	_qqc_rc2="$(json_get "$_qqc_j" retcode 2>/dev/null)" || _qqc_rc2=""
+	case "$_qqc_rc2" in ''|0|NOTFOUND|null) ;; *)
+		_QQBOT_CALL_ERR="$_qqc_tag: retcode=$_qqc_rc2 retmsg=$(json_get "$_qqc_j" retmsg 2>/dev/null)"
+		_ERROR="$_QQBOT_CALL_ERR"
+		_qqbot_note_err "$_ERROR"
+		return 1 ;;
+	esac
+	case "${_HTTP_STATUS:-200}" in
+		2??) ;;
+		*) _QQBOT_CALL_ERR="$_qqc_tag: http=${_HTTP_STATUS:-none} body=$(_qqbot_resp_digest "$_qqc_j")"
+		   _ERROR="$_QQBOT_CALL_ERR"
+		   _qqbot_note_err "$_ERROR"
+		   return 1 ;;
+	esac
+	_QQBOT_CALL_OUT="$_qqc_j"
+	return 0
+}
+
+# _qqbot_notify_retry <code> — 业务码里表示"稍后重试"的一类：token 失效(11244/11245)
+# 直接作废缓存，其余只留痕，绝不在这里自动重放请求（重放会放大限频）。
+_qqbot_notify_retry() {
+	case "$1" in
+		11244|11245) qqbot_token_invalidate 2>/dev/null ;;
+	esac
+	return 0
+}
+
+# ---- interactivity (button / keyboard callback) --------------------------
+# 用户点击 keyboard 按钮 → INTERACTION_CREATE 事件；必须 PUT 回应，
+# 否则客户端一直转圈（超时 3 秒，同一 interaction 只能回应一次）。
+
+# qqbot_interaction_ack <interaction_id> [code]
+# code（官方定义）：0 成功 / 1 操作失败 / 2 操作频繁 / 3 重复操作 / 4 没有权限 / 5 仅管理员操作
+# code=0 且事件 type=14(清空会话) 时，QQ 后台会额外下发"会话已清空"小灰条。
+# 只有 type=11(消息按钮) / 12(快捷菜单) 需要回应；同一 interaction_id 只能回一次。
+qqbot_interaction_ack() {
+	case "${2:-0}" in
+		0|1|2|3|4|5) _qi_code="${2:-0}" ;;
+		*) _ERROR="qqbot.interaction.put: code must be 0..5"; return 1 ;;
+	esac
+	_qqbot_api PUT "/interactions/$(qqbot_seg "$1")" \
+		"$(json_obj code "$_qi_code")" "qqbot.interaction.put"
+}
+
+# qqbot_interaction_ack_text <interaction_id> <code> <content>
+# 兼容旧调用：官方 PUT /interactions 请求体只有 code，不接受 data.content，
+# 所以 content 被忽略（旧实现多发一个 data 字段会被 630001 拒掉）。
+qqbot_interaction_ack_text() {
+	qqbot_interaction_ack "$1" "$2"
+}
+
 # Drop the cached token (used on 401 from the platform)
 qqbot_token_invalidate() {
 	rm -f "$QQBOT_TOKEN_FILE" 2>/dev/null
