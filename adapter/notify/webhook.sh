@@ -819,6 +819,8 @@ notify_webhook() {
 
 	_nw_ok=0 _nw_fail=0
 	_nw_res=""
+	# tmp/ is not tracked by git, so a fresh checkout may lack it.
+	[ -d "$_NOTIFY_TMP" ] || mkdir -p "$_NOTIFY_TMP" 2>/dev/null
 	_nw_resf="$_NOTIFY_TMP/notify-res.$$"
 	: >"$_nw_resf"
 
