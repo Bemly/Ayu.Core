@@ -33,7 +33,7 @@ TG_BOT_ID="${TG_BOT_ID:-8723729335}"
 DC_TOKEN="${DC_TOKEN:-}"
 DC_API_BASE="https://discord.com/api/v10"
 DC_BOT_ID="${DC_BOT_ID:-}"
-# Proxy for cdn.discordapp.com (set on NAS if blocked, e.g. dchook.bemly.moe/cdn)
+# Proxy for cdn.discordapp.com (set if blocked, e.g. https://<your-proxy>/cdn)
 DC_CDN_PROXY="${DC_CDN_PROXY:-}"
 
 # ---- QQ Bot (official, bot.q.qq.com) ----
