@@ -172,6 +172,9 @@ _http_raw() {
 				for _mh in "$@"; do
 					[ -n "$_mh" ] && printf 'HDR %s\n' "$_mh"
 				done
+				printf "BODY "
+				head -c 4000 "$_hbfile" 2>/dev/null
+				printf "\n"
 			} >> "$MOCK_LOG"
 		fi
 		if [ "${MOCK_FAIL:-0}" = "1" ]; then
