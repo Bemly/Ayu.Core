@@ -2,7 +2,10 @@
 # router.sh — Ayu.Core CGI entry point
 # Receives webhook POSTs, routes to platform handlers, dispatches replies.
 # Path: /cgi-bin/router.sh/<platform>
-# Or:   /cgi-bin/router.sh?platform=<platform>
+# Or:   /cgi-bin/router.sh?platform=<platform>   (only when the proxy swallows
+#        the path segment; the path form always wins)
+# Anything else is 404 — a bare /cgi-bin/router.sh?token=... no longer defaults
+# to qq. Deployments that need the old behaviour set ROUTER_DEFAULT_PLATFORM=qq.
 
 # ---- bootstrap ----
 _HB="$(dirname "$0")/.."
@@ -46,6 +49,16 @@ fi
 _path="${_URI%%\?*}"
 [ -n "$_PATH" ] && _path="$_PATH"
 
+# raw query, kept only to recover ?platform= when a reverse proxy eats the path
+# segment. It must be read from the untouched URI: _path above has it stripped.
+_qs_raw="${QUERY_STRING:-}"
+if [ -z "$_qs_raw" ]; then
+	case "$_URI" in
+		*\?*) _qs_raw="${_URI#*\?}" ;;
+		*) _qs_raw="" ;;
+	esac
+fi
+
 # detect platform from URL path (done before auth: the qqbot alternative token
 # below must be scoped to the qqbot endpoint)
 _platform=""
@@ -55,13 +68,38 @@ case "$_path" in
 	*/telegram|*/telegram/*) _platform="telegram" ;;
 	*/discord|*/discord/*) _platform="discord" ;;
 	*/fnos|*/fnos/*) _platform="fnos" ;;
-	*platform=qqbot*) _platform="qqbot" ;;
-	*platform=qq*) _platform="qq" ;;
-	*platform=telegram*) _platform="telegram" ;;
-	*platform=discord*) _platform="discord" ;;
-	*platform=fnos*) _platform="fnos" ;;
-	*) _platform="qq" ;;  # default
 esac
+
+# query fallback — only when the path carried no platform at all. Each value is
+# matched with surrounding '&' so ?platform=qq cannot match platform=qqbot.
+if [ -z "$_platform" ]; then
+	case "&$_qs_raw&" in
+		*"&platform=qqbot&"*)    _platform="qqbot" ;;
+		*"&platform=telegram&"*) _platform="telegram" ;;
+		*"&platform=discord&"*)  _platform="discord" ;;
+		*"&platform=fnos&"*)     _platform="fnos" ;;
+		*"&platform=qq&"*)       _platform="qq" ;;
+	esac
+fi
+
+# legacy escape hatch: bare /cgi-bin/router.sh?token=... used to mean qq. It is
+# no longer implicit; a deployment that relies on it opts in explicitly.
+if [ -z "$_platform" ] && [ -n "${ROUTER_DEFAULT_PLATFORM:-}" ]; then
+	case "$ROUTER_DEFAULT_PLATFORM" in
+		qq|telegram|discord|fnos|qqbot) _platform="$ROUTER_DEFAULT_PLATFORM" ;;
+		*) ;;
+	esac
+fi
+
+# unknown route — refuse with 404 instead of guessing a platform. The token is
+# irrelevant here: nothing is dispatched, so no auth is consulted.
+if [ -z "$_platform" ]; then
+	printf 'Status: 404 Not Found\r\n'
+	printf 'Content-Type: application/json\r\n\r\n'
+	printf '{"ok":false,"error":"unknown platform"}'
+	log_warn "router: unknown platform path=$_path"
+	exit 0
+fi
 
 # ---- auth check ----
 # WEBHOOK_SECRET from config.sh; if set, require ?token=<secret> in URL
