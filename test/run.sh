@@ -61,6 +61,9 @@ cd "$(dirname "$0")/.." || exit 1
 . ./test/mock/mock_http.sh
 
 # run all test files
+_AYU_TEST_SOURCED=1
+export _AYU_TEST_SOURCED
+
 for _f in test/test_*.sh; do
     printf '\n--- %s ---\n' "$_f"
     . "./$_f"

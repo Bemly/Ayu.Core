@@ -10,7 +10,14 @@ qqbot:/echo|qqbot/handler.sh|qqbot_handler_echo
 qqbot:/info|qqbot/handler.sh|qqbot_handler_info
 qqbot:/recall|qqbot/handler.sh|qqbot_handler_recall
 
-/ping|qq/handler.sh|handler_ping
-/echo|qq/handler.sh|handler_echo
-/info|qq/handler.sh|handler_info
+# Unified notify gateway button relay. These run before the catch-all sync
+# rule and return 2 ("not mine") for every event that is not a notify button,
+# so ordinary traffic still reaches sync_handler below.
+qqbot:*|notify/relay.sh|notify_relay_button
+telegram:*|notify/relay.sh|notify_relay_button
+discord:*|notify/relay.sh|notify_relay_button
+
+# (qq channel disabled) /ping|qq/handler.sh|handler_ping
+# (qq channel disabled) /echo|qq/handler.sh|handler_echo
+# (qq channel disabled) /info|qq/handler.sh|handler_info
 *|../plugin/sync/handler.sh|sync_handler

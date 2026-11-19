@@ -31,3 +31,14 @@ QQBOT_BOT_OPENID="${QQBOT_BOT_OPENID:-}"
 # ---- Bot server (optional overrides) ----
 # BOT_PORT="${BOT_PORT:-6160}"
 # BOT_HOST="${BOT_HOST:-0.0.0.0}"
+
+# ---- Unified notify gateway (optional overrides) ---------------------------
+# Generate with: hexdump -n 24 -e '24/1 "%02x"' /dev/urandom
+# Keep it distinct from WEBHOOK_SECRET: this token only unlocks /notify.
+# NOTIFY_WEBHOOK_TOKEN="${NOTIFY_WEBHOOK_TOKEN:-}"
+# NOTIFY_ALLOW_HOSTS=""            # extra callback hosts, comma separated
+# NOTIFY_HTTP_TIMEOUT=4            # callback timeout, seconds
+# NOTIFY_MAX_TARGETS=10
+# NOTIFY_CB_TTL_DAYS=7
+# NOTIFY_RELAY_FALLBACK_LAST=1
+# NOTIFY_QQ_LABEL_MAX=10

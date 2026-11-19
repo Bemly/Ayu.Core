@@ -68,6 +68,7 @@ case "$_path" in
 	*/telegram|*/telegram/*) _platform="telegram" ;;
 	*/discord|*/discord/*) _platform="discord" ;;
 	*/fnos|*/fnos/*) _platform="fnos" ;;
+	*/notify|*/notify/*) _platform="notify" ;;
 esac
 
 # query fallback — only when the path carried no platform at all. Each value is
@@ -78,6 +79,7 @@ if [ -z "$_platform" ]; then
 		*"&platform=telegram&"*) _platform="telegram" ;;
 		*"&platform=discord&"*)  _platform="discord" ;;
 		*"&platform=fnos&"*)     _platform="fnos" ;;
+		*"&platform=notify&"*)   _platform="notify" ;;
 		*"&platform=qq&"*)       _platform="qq" ;;
 	esac
 fi
@@ -86,7 +88,7 @@ fi
 # no longer implicit; a deployment that relies on it opts in explicitly.
 if [ -z "$_platform" ] && [ -n "${ROUTER_DEFAULT_PLATFORM:-}" ]; then
 	case "$ROUTER_DEFAULT_PLATFORM" in
-		qq|telegram|discord|fnos|qqbot) _platform="$ROUTER_DEFAULT_PLATFORM" ;;
+		qq|telegram|discord|fnos|qqbot|notify) _platform="$ROUTER_DEFAULT_PLATFORM" ;;
 		*) ;;
 	esac
 fi
@@ -128,6 +130,12 @@ fi
 # form, so it must not be able to unlock any other platform path.
 if [ "$_auth_ok" -eq 0 ] && [ "$_platform" = "fnos" ] && [ -n "${FNOS_WEBHOOK_TOKEN:-}" ]; then
 	auth_check "${QUERY_STRING:-}" "$FNOS_WEBHOOK_TOKEN" && _auth_ok=1
+fi
+# NOTIFY_WEBHOOK_TOKEN follows the same rule: a separate, URL-safe secret
+# scoped to the notify endpoint only. The notify URL is pasted into third-party
+# CI/monitoring forms, so it must not unlock any other platform path.
+if [ "$_auth_ok" -eq 0 ] && [ "$_platform" = "notify" ] && [ -n "${NOTIFY_WEBHOOK_TOKEN:-}" ]; then
+	auth_check "${QUERY_STRING:-}" "$NOTIFY_WEBHOOK_TOKEN" && _auth_ok=1
 fi
 if [ "$_auth_ok" -eq 0 ]; then
 	# NOTE: never echo the query string back or into the log (it carries the token)
@@ -199,21 +207,39 @@ case "$_platform" in
 		;;
 	discord)
 		. "$_HB/adapter/discord/webhook.sh"
+		# dc_webhook_handler streams the interaction response body itself
+		# ({"type":1} for PING, {"type":6} for a deferred component ACK) and does
+		# it BEFORE dispatching: Discord allows 3s, the relay POST is slower.
+		# CGI has no header rewind, so the header must be emitted first — the
+		# error path therefore appends only a body (the handler has not printed
+		# anything yet when JSON parsing fails).
+		printf 'Content-Type: application/json\r\n\r\n'
 		dc_webhook_handler "$_body" || {
 			_err="$_ERROR"
 			log_err "router: $_err"
 			_router_note_failure discord
-			_status_line "$_err"
-			printf 'Content-Type: application/json\r\n\r\n'
 			_err_body "$_err"
 			exit 0
 		}
+		exit 0
 		;;
 	fnos)
 		. "$_HB/adapter/fnos/webhook.sh"
 		fnos_webhook "$_body" 2>/dev/null
 		printf 'Content-Type: application/json; charset=utf-8\r\n\r\n'
 		printf '{"errcode":0,"errmsg":"ok","code":0,"msg":"success"}'
+		exit 0
+		;;
+	notify)
+		. "$_HB/adapter/notify/webhook.sh"
+		_notify_out="$(notify_webhook "$_body" 2>/dev/null)"
+		_notify_rc=$?
+		printf 'Content-Type: application/json\r\n\r\n'
+		printf '%s' "$_notify_out"
+		if [ $_notify_rc -ne 0 ]; then
+			log_err "router: ${_ERROR:-notify: handler failed}"
+			_router_note_failure notify
+		fi
 		exit 0
 		;;
 	qqbot)

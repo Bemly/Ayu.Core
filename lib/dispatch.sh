@@ -33,10 +33,19 @@ dispatch() {
 				_script="$_HB/adapter/$_script"
 				if [ -f "$_script" ]; then
 					. "$_script"
-					"$_func" "$_pf" "$_evt" "$_uid" "$_txt" "$_raw" || {
-						log_err "dispatch: $_func failed: $_ERROR"
-						return 1
-					}
+					"$_func" "$_pf" "$_evt" "$_uid" "$_txt" "$_raw"
+					_drc=$?
+					case "$_drc" in
+						0) return 0 ;;
+						# 2 = "not mine, keep matching": lets an early rule peek
+						# at an event (e.g. notify button relay) without
+						# stealing it from the catch-all sync rule behind it.
+						2) continue ;;
+						*)
+							log_err "dispatch: $_func failed: $_ERROR"
+							return 1
+							;;
+					esac
 				else
 					log_err "dispatch: handler not found: $_script"
 				fi

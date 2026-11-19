@@ -63,6 +63,17 @@ BOT_HOST="${BOT_HOST:-0.0.0.0}"
 # Webhook auth: if set, require ?token=<secret> in webhook URL
 WEBHOOK_SECRET="${WEBHOOK_SECRET:-}"
 
+# ---- Unified notify gateway ------------------------------------------------
+# One HTTP entry that fans a notification out to qqbot / telegram / discord and
+# relays button (and other) interactions back to a caller-supplied URL.
+NOTIFY_WEBHOOK_TOKEN="${NOTIFY_WEBHOOK_TOKEN:-}"
+NOTIFY_ALLOW_HOSTS="${NOTIFY_ALLOW_HOSTS:-}"
+NOTIFY_HTTP_TIMEOUT="${NOTIFY_HTTP_TIMEOUT:-4}"
+NOTIFY_MAX_TARGETS="${NOTIFY_MAX_TARGETS:-10}"
+NOTIFY_CB_TTL_DAYS="${NOTIFY_CB_TTL_DAYS:-7}"
+NOTIFY_RELAY_FALLBACK_LAST="${NOTIFY_RELAY_FALLBACK_LAST:-1}"
+NOTIFY_QQ_LABEL_MAX="${NOTIFY_QQ_LABEL_MAX:-10}"
+
 # ---- Logging ----
 _LOG_LEVEL="${_LOG_LEVEL:-1}"    # 0=trace, 1=info, 2=warn, 3=err
 _LOG_DIR="${_LOG_DIR:-$_HB/var/log}"
