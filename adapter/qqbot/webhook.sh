@@ -322,7 +322,19 @@ qqbot_handle_event() {
 			_qh_igid="$(json_get "$_qh_d" group_openid 2>/dev/null)" || _qh_igid=""
 			_qh_imem="$(json_get "$_qh_d" group_member_openid 2>/dev/null)" || _qh_imem=""
 			_qh_iuser="$(json_get "$_qh_d" user_openid 2>/dev/null)" || _qh_iuser=""
-			log_info "qqbot: interaction type=${_qh_itype:-?} scene=${_qh_iscene:-?}/${_qh_ict:-?} id=$_qh_iid"
+			# 按钮回调载荷：d.data.resolved.{button_id,button_data,user_id,message_id}
+			# 部分版本把 button_data 直接放在 d.data 下，两处都取，resolved 优先。
+			_qh_ida="$(json_get "$_qh_d" data 2>/dev/null)" || _qh_ida=""
+			_qh_ires="$(json_get "$_qh_ida" resolved 2>/dev/null)" || _qh_ires=""
+			_qh_bid="$(json_get "$_qh_ires" button_id 2>/dev/null)" || _qh_bid=""
+			case "$_qh_bid" in NOTFOUND|null|"") _qh_bid="$(json_get "$_qh_ida" button_id 2>/dev/null)" || _qh_bid="" ;; esac
+			case "$_qh_bid" in NOTFOUND|null) _qh_bid="" ;; esac
+			_qh_bdata="$(json_get "$_qh_ires" button_data 2>/dev/null)" || _qh_bdata=""
+			case "$_qh_bdata" in NOTFOUND|null|"") _qh_bdata="$(json_get "$_qh_ida" button_data 2>/dev/null)" || _qh_bdata="" ;; esac
+			case "$_qh_bdata" in NOTFOUND|null) _qh_bdata="" ;; esac
+			_qh_imid="$(json_get "$_qh_ires" message_id 2>/dev/null)" || _qh_imid=""
+			case "$_qh_imid" in NOTFOUND|null) _qh_imid="" ;; esac
+			log_info "qqbot: interaction type=${_qh_itype:-?} scene=${_qh_iscene:-?}/${_qh_ict:-?} id=$_qh_iid button=${_qh_bid:-?} data=${_qh_bdata:-none}"
 			case "$_qh_itype" in
 				11|12)
 					if [ "${QQBOT_INTERACTION_AUTOACK:-1}" = "1" ] && [ -n "$_qh_iid" ]; then
@@ -335,8 +347,13 @@ qqbot_handle_event() {
 					;;
 				*) log_debug "qqbot: interaction type=${_qh_itype:-?} needs no ack" ;;
 			esac
+			# 事件文本带上按钮 id/data，否则 handler 只看到空壳事件名，无法按按钮分流。
+			_qi_text="interaction:$_qh_t"
+			[ -n "$_qh_bid" ] && _qi_text="$_qi_text button=$_qh_bid"
+			[ -n "$_qh_bdata" ] && _qi_text="$_qi_text data=$_qh_bdata"
+			[ -n "$_qh_imid" ] && _qi_text="$_qi_text msg=$_qh_imid"
 			# 回复被动消息用 event_id（= 事件 id），不含 "INTERACTION_CREATE:" 前缀
-			dispatch "qqbot" "interaction" "${_qh_imem:-$_qh_iuser}" "interaction:$_qh_t" "$_qh_d"
+			dispatch "qqbot" "interaction" "${_qh_imem:-$_qh_iuser}" "$_qi_text" "$_qh_d"
 			;;
 		MESSAGE_REACTION_ADD|MESSAGE_REACTION_REMOVE|MESSAGE_REACTION_REMOVE_ALL)
 			_qh_uid="$(json_get "$_qh_d" user_id 2>/dev/null)" || _qh_uid=""
