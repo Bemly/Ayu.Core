@@ -43,6 +43,13 @@ dc_batch_run() {
 		mkdir "$_lock" 2>/dev/null || { log_warn "dc-sync: lock busy, skip"; return 0; }
 	fi
 	printf '%s' "$$" > "$_lock/pid" 2>/dev/null
+	# Release the lock on every exit path. Without this the directory survived
+	# each run and the next minute logged "stale lock, taking over" forever.
+	_dc_sync_unlock() {
+		rm -f "$_lock/pid" 2>/dev/null
+		rmdir "$_lock" 2>/dev/null
+	}
+	trap _dc_sync_unlock EXIT
 
     # Collect unique DC source channels from sync.conf
 	_channels=""
@@ -72,7 +79,31 @@ dc_batch_run() {
 		_limit="10"
 		if [ -f "$_cur_file" ]; then
 			_after="$(cat "$_cur_file" 2>/dev/null)"
-			_limit="100"
+			_limit="50"
+		fi
+
+		# Cheap freshness check: ask for the single newest message and compare it
+		# with the cursor. The old code parsed a full 100-message page through
+		# awk every minute just to discover there was nothing new, which was the
+		# bulk of this job's CPU cost.
+		if [ -n "$_after" ]; then
+			_ptmp="/tmp/dc-sync-peek-$$"
+			if _dc_get "/channels/$_cid/messages?limit=1" >"$_ptmp" 2>/dev/null; then
+				_peek="$(cat "$_ptmp" 2>/dev/null)"
+				rm -f "$_ptmp"
+				_pmid=""
+				if [ -n "$_peek" ] && [ "$_peek" != "[]" ] && [ "$_peek" != "NOTFOUND" ]; then
+					_pmsg="$(json_arr_at "$_peek" 0 2>/dev/null)" || _pmsg=""
+					[ -n "$_pmsg" ] && _pmid="$(json_get "$_pmsg" id 2>/dev/null)"
+				fi
+				if [ -n "$_pmid" ] && [ "$_pmid" != "NOTFOUND" ] && [ "$_pmid" -le "$_after" ] 2>/dev/null; then
+					log_info "dc-sync: no new messages $_cid (newest=$_pmid)"
+					continue
+				fi
+			else
+				rm -f "$_ptmp" 2>/dev/null
+				log_warn "dc-sync: peek FAIL $_cid, falling back to full fetch"
+			fi
 		fi
 
         # API endpoint: after parameter = get messages newer than cursor
