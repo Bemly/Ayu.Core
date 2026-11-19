@@ -106,7 +106,8 @@ case "$OUT" in *'"ok":false'*) ok "malformed body rejected" ;; *) bad "malformed
 echo "== D. auth =="
 OUT=$(printf '%s' '{"to":[],"text":"t"}' | env REQUEST_METHOD=POST PATH_INFO=/notify \
 	REQUEST_URI=/cgi-bin/router.sh/notify QUERY_STRING='token=wrong' \
-	CONTENT_LENGTH=20 AYU_ENV=dev NOTIFY_WEBHOOK_TOKEN=notifysecret \
+	CONTENT_LENGTH=20 AYU_ENV=dev WEBHOOK_SECRET=othersecret \
+	NOTIFY_WEBHOOK_TOKEN=notifysecret \
 	sh "$T/cgi-bin/router.sh")
 case "$OUT" in *Forbidden*) ok "wrong token → 403" ;; *) bad "wrong token" "$OUT" ;; esac
 
